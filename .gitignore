@@ -10,3 +10,9 @@ __pycache__/
 assignments/*/data/
 assignments/*/checkpoints/**/exported/
 assignments/*/checkpoints/**/videos/
+assignments/*/results/dynamics/window_errors_*.pt
+assignments/*/results/raw/main/*_traces.npz
+assignments/*/results/raw/grid/*_traces.npz
+assignments/*/results/raw/calib/*_traces.npz
+assignments/*/results/raw/diag_height/*_traces.npz
+assignments/*/results/raw/main_D_without_norms/*_traces.npz

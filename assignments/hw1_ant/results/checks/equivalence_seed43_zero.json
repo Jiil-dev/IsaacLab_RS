@@ -1,0 +1,18 @@
+{
+ "seed": 43,
+ "alpha_mode": "zero",
+ "steps": 300,
+ "num_envs": 64,
+ "max_abs_differences": {
+  "a_obs": 0.0,
+  "b_base_action_obs": 0.0,
+  "c_base_action": 0.0,
+  "d_final": 0.0,
+  "e_buffer": 0.0,
+  "f_torque": 0.0,
+  "alpha_max": 0.0
+ },
+ "alpha_mean": 0.0,
+ "alpha_fraction_positive": 0.0,
+ "passed": true
+}
