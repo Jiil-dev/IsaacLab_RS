@@ -3,8 +3,10 @@
 
 """Terrains for the HW1 Ant tasks.
 
-* ``dr_terrain``: the domain-randomized training terrain (B, C and D are trained on it).
-* ``t1_terrain`` .. ``t3_terrain``: held-out test terrains (never used for training).
+* ``dr_terrain``: the domain-randomized training terrain (B, C, D, E0, E and stage 1 of E2 are trained on it).
+* ``dr_hard_terrain``: the same terrain types with about twice the height range (stage 2 of E2).
+* ``t1_terrain`` .. ``t5_terrain``: held-out test terrains (never used for training).
+* ``oracle_terrain``: the shapes of T1 and T4 on other random tiles, only for the ceiling reference of E2.
 * ``grid_terrain``: four columns of increasing roughness for the friction x roughness heatmap.
 * ``plane_terrain``: a flat plane with a chosen friction (T2 and the friction-switch analysis).
 
@@ -169,17 +171,51 @@ DR_GROUND_FRICTION = 1.0
 """Ground friction for training. With ``multiply``, the randomized robot friction is the effective friction."""
 
 
-def dr_terrain() -> TerrainImporterCfg:
+def training_terrain(generator: TerrainGeneratorCfg) -> TerrainImporterCfg:
+    """Training terrain: spawn on the first rows, ground friction 1.0 with ``multiply`` (robot friction decides)."""
     return TerrainImporterCfg(
         prim_path="/World/ground",
         terrain_type="generator",
-        terrain_generator=DR_TERRAIN_GENERATOR,
+        terrain_generator=generator,
         max_init_terrain_level=DR_SPAWN_ROWS - 1,
         collision_group=-1,
         physics_material=ground_material(DR_GROUND_FRICTION, "multiply"),
         visual_material=GROUND_VISUAL,
         debug_vis=False,
     )
+
+
+def dr_terrain() -> TerrainImporterCfg:
+    return training_terrain(DR_TERRAIN_GENERATOR)
+
+
+DR_HARD_TERRAIN_GENERATOR = DR_TERRAIN_GENERATOR.replace(
+    seed=5,
+    sub_terrains={
+        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.20),
+        "rough": ScaledRandomUniformTerrainCfg(proportion=0.30, max_height_range=(0.01, 0.12)),
+        "wave": RaisedWaveTerrainCfg(proportion=0.20, amplitude_range=(0.01, 0.06), num_waves=4, border_width=0.25),
+        "obstacles": terrain_gen.HfDiscreteObstaclesTerrainCfg(
+            proportion=0.15,
+            obstacle_height_mode="fixed",
+            obstacle_width_range=(0.3, 0.8),
+            obstacle_height_range=(0.02, 0.20),
+            num_obstacles=30,
+            platform_width=2.0,
+            border_width=0.25,
+        ),
+        "slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+            proportion=0.15, slope_range=(0.0, 0.30), platform_width=2.0, border_width=0.25
+        ),
+    },
+)
+"""Stage 2 of E2: the training terrain types with a larger height range (bumps and waves up to 0.12 m, blocks up to
+0.20 m, slopes up to 0.30). Bumps stay below the 0.13-0.16 m of T1, and no test shape (stairs, box grid, raised box,
+rails, cylinders, cones, tilted boxes) is added."""
+
+
+def dr_hard_terrain() -> TerrainImporterCfg:
+    return training_terrain(DR_HARD_TERRAIN_GENERATOR)
 
 
 ##
@@ -310,6 +346,75 @@ def t4_terrain_generator() -> TerrainGeneratorCfg:
 def t4_terrain() -> TerrainImporterCfg:
     """T4 (second held-out set): new shapes, original friction setting (1.0, average)."""
     return generator_terrain(t4_terrain_generator(), friction=1.0, combine_mode="average")
+
+
+T5_SPAWN_ROWS = 10
+"""T5 spreads the 100 robots over 10 rows x 10 columns, one robot per tile (see ``mdp.spread_env_origins``)."""
+
+
+def t5_terrain_generator() -> TerrainGeneratorCfg:
+    """Third held-out set, defined before training E2 (second addendum).
+
+    Shapes never used in training, in the diagnosis or in T1-T4: cones, tilted boxes and long waves twice as high as
+    the stage-2 waves.
+    """
+    cones = terrain_gen.MeshRepeatedPyramidsTerrainCfg
+    boxes = terrain_gen.MeshRepeatedBoxesTerrainCfg
+    return TerrainGeneratorCfg(
+        seed=4,
+        size=(8.0, 8.0),
+        border_width=20.0,
+        num_rows=25,
+        num_cols=10,
+        horizontal_scale=0.1,
+        vertical_scale=0.005,
+        slope_threshold=0.75,
+        difficulty_range=(0.5, 1.0),
+        curriculum=False,
+        use_cache=False,
+        sub_terrains={
+            "cones": cones(
+                proportion=1.0 / 3.0,
+                object_params_start=cones.ObjectCfg(num_objects=20, height=0.08, radius=0.40),
+                object_params_end=cones.ObjectCfg(num_objects=40, height=0.18, radius=0.50),
+                platform_width=2.0,
+            ),
+            "tilted_boxes": boxes(
+                proportion=1.0 / 3.0,
+                object_params_start=boxes.ObjectCfg(num_objects=20, height=0.06, size=(0.5, 0.5), max_yx_angle=10.0),
+                object_params_end=boxes.ObjectCfg(num_objects=40, height=0.14, size=(0.7, 0.7), max_yx_angle=25.0),
+                platform_width=2.0,
+            ),
+            # heights in [0, 2 * amplitude] = up to 0.2 m, wavelength 4 m
+            "long_waves": RaisedWaveTerrainCfg(
+                proportion=1.0 / 3.0, amplitude_range=(0.04, 0.10), num_waves=2, border_width=0.25
+            ),
+        },
+    )
+
+
+def t5_terrain() -> TerrainImporterCfg:
+    """T5 (third held-out set): new shapes, original friction setting (1.0, average)."""
+    return generator_terrain(t5_terrain_generator(), friction=1.0, combine_mode="average")
+
+
+##
+# Ceiling reference of E2 (never a submission candidate)
+##
+
+ORACLE_FRICTION_RANGE = (0.15, 1.2)
+"""Robot friction range of the ceiling reference: covers the 0.2 of T2 and the 0.4 of T3."""
+
+
+def oracle_terrain() -> TerrainImporterCfg:
+    """The shapes of T1 and T4 (other random tiles, seed 7, difficulty 0-1) plus flat ground.
+
+    Training on it answers "how high can this robot score on T1-T4 at all", so that the score of E2 can be judged.
+    """
+    sub_terrains = {"flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.10)}
+    for name, cfg in {**t1_terrain_generator().sub_terrains, **t4_terrain_generator().sub_terrains}.items():
+        sub_terrains[name] = cfg.replace(proportion=0.15)
+    return training_terrain(DR_TERRAIN_GENERATOR.replace(seed=7, sub_terrains=sub_terrains))
 
 
 ##

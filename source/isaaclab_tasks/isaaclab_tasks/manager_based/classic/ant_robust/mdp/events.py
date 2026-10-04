@@ -66,6 +66,21 @@ def randomize_robot_friction(
     set_robot_friction(env, friction, env_ids, asset_cfg)
 
 
+def spread_env_origins(env: ManagerBasedEnv, env_ids: torch.Tensor | None, spawn_rows: int):
+    """Give every environment its own spawn tile: environment i starts on row ``(i // num_cols) % spawn_rows`` and
+    column ``i % num_cols`` of a generated terrain.
+
+    By default all robots of a test terrain spawn on the first row, i.e. only ``num_cols`` different starting tiles
+    (10 for T1). Used as a ``startup`` event, before the first reset places the robots.
+    """
+    terrain = env.scene.terrain
+    num_rows, num_cols = terrain.terrain_origins.shape[:2]
+    ids = torch.arange(env.scene.num_envs, device=terrain.env_origins.device)
+    terrain.terrain_types[:] = ids % num_cols
+    terrain.terrain_levels[:] = (ids // num_cols) % min(spawn_rows, num_rows)
+    terrain.env_origins[:] = terrain.terrain_origins[terrain.terrain_levels, terrain.terrain_types]
+
+
 def robot_friction(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
     """Current static friction of the first robot shape in every environment (for analysis). Shape (num_envs,)."""
     asset: Articulation = env.scene[asset_cfg.name]

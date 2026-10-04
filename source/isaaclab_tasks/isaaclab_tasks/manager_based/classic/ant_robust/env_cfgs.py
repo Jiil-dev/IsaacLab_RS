@@ -87,6 +87,21 @@ HEIGHT_SCAN = RayCasterCfg(
 """9 x 6 rays every 0.2 m, from 0.4 m behind to 1.2 m ahead of the torso and 0.5 m to each side (yaw aligned)."""
 
 
+HEIGHT_SCAN_WIDE = RayCasterCfg(
+    prim_path="{ENV_REGEX_NS}/Robot/torso",
+    offset=RayCasterCfg.OffsetCfg(pos=(1.0, 0.0, 20.0)),
+    ray_alignment="yaw",
+    pattern_cfg=patterns.GridPatternCfg(resolution=0.25, size=(4.0, 2.5)),
+    mesh_prim_paths=["/World/ground"],
+    max_distance=100.0,
+)
+"""17 x 11 rays every 0.25 m, from 1.0 m behind to 3.0 m ahead of the torso and 1.25 m to each side (yaw aligned).
+
+Sized for the Ant (E2): its feet touch down 0.3-0.95 m to the side and up to 0.9 m ahead of and behind the torso
+(measured with E, which saw only 11-16 % of these points), and 3 m ahead give about 1 s of preview at 2.5 m/s.
+"""
+
+
 @configclass
 class ProbeSceneCfg(MySceneCfg):
     """Original scene (terrain, robot, light) plus the downward height probe."""
@@ -99,6 +114,13 @@ class ScanSceneCfg(ProbeSceneCfg):
     """Original scene plus the height probe and the height scan."""
 
     height_scan = HEIGHT_SCAN
+
+
+@configclass
+class WideScanSceneCfg(ProbeSceneCfg):
+    """Original scene plus the height probe and the wide height scan (E2)."""
+
+    height_scan = HEIGHT_SCAN_WIDE
 
 
 @configclass
@@ -161,6 +183,26 @@ class DREventCfg(EventCfg):
     )
 
 
+@configclass
+class OracleEventCfg(DREventCfg):
+    """Ceiling reference of E2: a friction range that also covers T2 (0.2) and T3 (0.4)."""
+
+    robot_friction = EventTerm(
+        func=mdp.randomize_robot_friction,
+        mode="startup",
+        params={"friction_range": terrains.ORACLE_FRICTION_RANGE, "num_buckets": 64},
+    )
+
+
+@configclass
+class T5EventCfg(EventCfg):
+    """Original events plus one spawn tile per robot (T5 only)."""
+
+    spread_origins = EventTerm(
+        func=mdp.spread_env_origins, mode="startup", params={"spawn_rows": terrains.T5_SPAWN_ROWS}
+    )
+
+
 ##
 # Modifiers
 ##
@@ -172,6 +214,19 @@ def use_dr_training(cfg: AntEnvCfg):
     cfg.events = DREventCfg()
     # many more contacts on uneven ground than on a plane
     cfg.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
+
+
+def use_dr_hard_training(cfg: AntEnvCfg):
+    """Stage 2 of E2: like ``use_dr_training`` with the higher terrain."""
+    use_dr_training(cfg)
+    cfg.scene.terrain = terrains.dr_hard_terrain()
+
+
+def use_oracle_training(cfg: AntEnvCfg):
+    """Ceiling reference of E2: the shapes and frictions of the test terrains T1-T4 (other random tiles)."""
+    use_dr_training(cfg)
+    cfg.scene.terrain = terrains.oracle_terrain()
+    cfg.events = OracleEventCfg()
 
 
 def use_t1_terrain(cfg: AntEnvCfg):
@@ -188,6 +243,11 @@ def use_t3_terrain(cfg: AntEnvCfg):
 
 def use_t4_terrain(cfg: AntEnvCfg):
     cfg.scene.terrain = terrains.t4_terrain()
+
+
+def use_t5_terrain(cfg: AntEnvCfg):
+    cfg.scene.terrain = terrains.t5_terrain()
+    cfg.events = T5EventCfg()
 
 
 def use_grid_terrain(cfg: AntEnvCfg):
@@ -235,6 +295,42 @@ class AntScanEnvCfg(AntEnvCfg):
     # Ray-caster sensors look up every robot on the USD stage, so robots must not be cloned only in Fabric.
     scene: ScanSceneCfg = ScanSceneCfg(num_envs=4096, env_spacing=5.0, clone_in_fabric=False)
     observations: ScanObservationsCfg = ScanObservationsCfg()
+
+
+@configclass
+class AntWideScanEnvCfg(AntEnvCfg):
+    """E2 on the original scene (evaluation): height above the ground plus the wide height scan (60 + 187 dims)."""
+
+    # Ray-caster sensors look up every robot on the USD stage, so robots must not be cloned only in Fabric.
+    scene: WideScanSceneCfg = WideScanSceneCfg(num_envs=4096, env_spacing=5.0, clone_in_fabric=False)
+    observations: ScanObservationsCfg = ScanObservationsCfg()
+
+
+@configclass
+class AntWideScanDREnvCfg(AntWideScanEnvCfg):
+    """E2 stage 1: the training terrain of B, C, D, E0 and E."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        use_dr_training(self)
+
+
+@configclass
+class AntWideScanDRHardEnvCfg(AntWideScanEnvCfg):
+    """E2 stage 2: the same terrain types with about twice the height range."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        use_dr_hard_training(self)
+
+
+@configclass
+class AntWideScanOracleEnvCfg(AntWideScanEnvCfg):
+    """Ceiling reference of E2 (never submitted): stage 2 on the shapes and frictions of T1-T4."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        use_oracle_training(self)
 
 
 @configclass
@@ -295,7 +391,7 @@ def _with_modifier(base_cls: type, modifier, name: str) -> type:
     return VariantCfg
 
 
-# Held-out test and analysis tasks: every observation design (A/B, C, D, E0, E) on every test terrain.
+# Held-out test and analysis tasks: every observation design (A/B, C, D, E0, E, E2) on every test terrain.
 # For example "Isaac-Ant-Residual-T2-v0" is D on the low-friction test terrain.
 TEST_TASK_CFGS: dict[str, type] = {}
 for _obs_name, _base_cls in {
@@ -304,12 +400,14 @@ for _obs_name, _base_cls in {
     "Residual": AntResidualEnvCfg,
     "RelHeight": AntRelHeightEnvCfg,
     "Scan": AntScanEnvCfg,
+    "WideScan": AntWideScanEnvCfg,
 }.items():
     for _terrain_name, _modifier in {
         "T1": use_t1_terrain,
         "T2": use_t2_terrain,
         "T3": use_t3_terrain,
         "T4": use_t4_terrain,
+        "T5": use_t5_terrain,
         "Grid": use_grid_terrain,
         "Switch": use_switch_terrain,
     }.items():

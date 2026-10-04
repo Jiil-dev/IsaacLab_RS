@@ -17,6 +17,22 @@ class AntRobustPPORunnerCfg(AntPPORunnerCfg):
 
 
 @configclass
+class AntE2PPORunnerCfg(AntPPORunnerCfg):
+    """E2: an entropy bonus so that the exploration noise does not collapse; 1500 iterations per stage.
+
+    With the baseline ``entropy_coef = 0`` the noise std of B, E0 and E fell from 0.46 to 0.05 within 1000 iterations,
+    the adaptive learning rate dropped to its floor (1e-5) and the training reward stopped rising. Stage 2 resumes the
+    stage-1 checkpoint for another 1500 iterations, so E2 trains 3000 iterations in total like the other conditions.
+    """
+
+    max_iterations = 1500
+    experiment_name = "ant_hw1"
+
+    def __post_init__(self):
+        self.algorithm.entropy_coef = 0.005
+
+
+@configclass
 class AntResidualPPORunnerCfg(AntPPORunnerCfg):
     """D: 1000 iterations on top of B's iteration-2000 policy, small exploration noise and learning rate.
 
