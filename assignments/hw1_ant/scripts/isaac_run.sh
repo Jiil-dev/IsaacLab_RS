@@ -59,7 +59,7 @@ fi
 exec 9> "${LOCK_DIR}/launch.lock"
 while true; do
     flock 9
-    running=$(pgrep -fc -E "${ISAAC_SCRIPTS}" || true)
+    running=$(pgrep -fc "${ISAAC_SCRIPTS}" || true)
     free_gb=$(awk '/MemAvailable/ {print int($2 / 1048576)}' /proc/meminfo)
     high_waiting=$(find "${LOCK_DIR}" -name 'high_*' | wc -l)
     if (( running < MAX_ISAAC_PROCS && free_gb >= MIN_FREE_GB )) \
