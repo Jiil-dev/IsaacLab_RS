@@ -17,7 +17,11 @@
   "E0_seed44": 93.46905364990235,
   "E_seed42": 97.51475173950195,
   "E_seed43": 95.33257949829101,
-  "E_seed44": 103.2582000732422
+  "E_seed44": 103.2582000732422,
+  "E2_seed42": 102.72756027221679,
+  "E2_seed43": 80.6918148803711,
+  "E2_seed44": 95.16520233154297,
+  "Oracle_seed42": 82.74097946166992
  },
  "rules": {
   "plan": {
@@ -110,59 +114,26 @@
    "seed": 44,
    "task": "Isaac-Ant-Scan-v0",
    "checkpoint": "assignments/hw1_ant/checkpoints/E_seed44/model.pt"
+  },
+  "addendum2": {
+   "rule": "E2 if E2 > E on the T1-T4 average and not E2 < E on T5 (plan section 9 rule), else the addendum choice",
+   "E2_vs_E_unseen4": ">",
+   "E2_vs_E_T5": ">",
+   "replace": true,
+   "condition": "E2",
+   "seed": 42,
+   "task": "Isaac-Ant-WideScan-v0",
+   "checkpoint": "assignments/hw1_ant/checkpoints/E2_seed42/model.pt"
   }
  },
  "submission": {
-  "candidates": [
-   "B",
-   "C",
-   "D",
-   "E0",
-   "E"
-  ],
-  "unseen_envs": [
-   "T1",
-   "T2",
-   "T3",
-   "T4"
-  ],
-  "unseen_mean_by_condition": {
-   "B": 51.67580680298803,
-   "C": 40.18228240669143,
-   "D": 51.66696034438308,
-   "E0": 57.063143265629435,
-   "E": 58.83735967468226
-  },
-  "unseen_by_seed": {
-   "B": {
-    "42": 48.223533688675694,
-    "43": 57.44861850885442,
-    "44": 49.35526821143394
-   },
-   "C": {
-    "42": 33.71695454599547,
-    "43": 44.79453807318925,
-    "44": 42.035354600889555
-   },
-   "D": {
-    "42": 49.44995098436297,
-    "43": 57.21943142424483,
-    "44": 48.33149862454142
-   },
-   "E0": {
-    "42": 58.45952792739816,
-    "43": 55.45537518584461,
-    "44": 57.274526683645526
-   },
-   "E": {
-    "42": 62.98749869542102,
-    "43": 56.1570981563035,
-    "44": 57.367482172322255
-   }
-  },
-  "condition": "E",
-  "seed": 44,
-  "task": "Isaac-Ant-Scan-v0",
-  "checkpoint": "assignments/hw1_ant/checkpoints/E_seed44/model.pt"
+  "rule": "E2 if E2 > E on the T1-T4 average and not E2 < E on T5 (plan section 9 rule), else the addendum choice",
+  "E2_vs_E_unseen4": ">",
+  "E2_vs_E_T5": ">",
+  "replace": true,
+  "condition": "E2",
+  "seed": 42,
+  "task": "Isaac-Ant-WideScan-v0",
+  "checkpoint": "assignments/hw1_ant/checkpoints/E2_seed42/model.pt"
  }
 }
