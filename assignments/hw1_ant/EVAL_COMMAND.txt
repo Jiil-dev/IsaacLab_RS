@@ -1,0 +1,23 @@
+[실습 과제 1] 평가 명령어
+
+conda activate lerobot-arena
+cd ~/IsaacLab_RS
+
+./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/play_one_episode.py \
+  --task Isaac-Ant-Scan-v0 \
+  --seed 24 \
+  --num_envs 100 \
+  --checkpoint assignments/hw1_ant/checkpoints/E_seed44/model.pt \
+  --video \
+  --video_length 960
+
+
+참고
+- Isaac-Ant-Scan-v0 = 원본 Isaac-Ant-v0 설정을 그대로 상속하고 레이캐스트 높이 센서만 추가한 task입니다.
+  지형, reward, 종료 조건, 에피소드 길이, 로봇은 원본과 같습니다.
+  원본 파일 source/isaaclab_tasks/isaaclab_tasks/manager_based/classic/ant/ant_env_cfg.py 의
+  지형(MySceneCfg.terrain)과 지형 물성을 바꾸면 이 task도 그 지형에서 평가됩니다.
+- 저장소를 ~/IsaacLab_RS 가 아닌 곳에 받았다면 명령 앞에 다음을 붙여 주세요.
+  PYTHONPATH=<저장소 경로>/source/isaaclab_tasks:$PYTHONPATH
+- 원본 task 이름(Isaac-Ant-v0)으로만 평가해야 한다면, 원본 관측을 쓰는 조건 B로 평가할 수 있습니다.
+  --task Isaac-Ant-v0 --checkpoint assignments/hw1_ant/checkpoints/B_seed44/model.pt

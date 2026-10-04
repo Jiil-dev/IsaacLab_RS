@@ -1,3 +1,10 @@
+> [!NOTE]
+> **로보틱스 시뮬레이션 수업 과제 저장소.** 수업 저장소 [cailab-hy/IsaacLab_RS](https://github.com/cailab-hy/IsaacLab_RS)(Isaac Lab 2.3.0)를 기반으로 과제별 코드를 추가했습니다. 아래 원본 README는 수정하지 않았습니다.
+>
+> | 과제 | 문서 | 평가 명령어 |
+> |---|---|---|
+> | 실습 과제 1: 처음 보는 환경에서도 잘 걷는 Ant | [assignments/hw1_ant](assignments/hw1_ant/README.md) | [EVAL_COMMAND.txt](assignments/hw1_ant/EVAL_COMMAND.txt) |
+
 ![Isaac Lab](docs/source/_static/isaaclab.jpg)
 
 ---
