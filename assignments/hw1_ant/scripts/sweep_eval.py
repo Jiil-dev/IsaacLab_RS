@@ -19,12 +19,21 @@ import os
 import hw1_common as common
 
 A_REF_CHECKPOINT = "logs/rsl_rl/ant/2026-09-17_13-19-56_ant_baseline/model_999.pt"
-MAIN_ENVS = ("Flat", "T1", "T2", "T3")
+MAIN_ENVS = ("Flat", "T1", "T2", "T3", "T4")
 UNSEEN_ENVS = ("T1", "T2", "T3")
+"""Unseen average of the plan (section 9)."""
+UNSEEN4_ENVS = ("T1", "T2", "T3", "T4")
+"""Unseen average of the addendum (exploratory E0/E, adds the second held-out set T4)."""
 GRID_FRICTIONS = (0.2, 0.3, 0.5, 0.8, 1.0)
 SWITCH = "300:0.25"
-OBS_TASK_PREFIX = {"base": "Isaac-Ant", "hist": "Isaac-Ant-Hist", "residual": "Isaac-Ant-Residual"}
-FINAL_ITERATION = {"A": 2999, "B": 2999, "C": 2999, "D": 999}
+OBS_TASK_PREFIX = {
+    "base": "Isaac-Ant",
+    "hist": "Isaac-Ant-Hist",
+    "residual": "Isaac-Ant-Residual",
+    "rel": "Isaac-Ant-RelHeight",
+    "scan": "Isaac-Ant-Scan",
+}
+FINAL_ITERATION = {"A": 2999, "B": 2999, "C": 2999, "D": 999, "E0": 2999, "E": 2999}
 """Last checkpoint of a finished run (A, B, C: 3000 iterations; D: 1000 iterations on top of B@2000)."""
 
 
@@ -34,7 +43,7 @@ def policies() -> list[dict]:
     out = [{"name": "A_ref", "condition": "A_ref", "seed": 42, "obs": "base", "checkpoint": A_REF_CHECKPOINT}]
     for seed in common.SEEDS:
         # runs that do not exist yet or are still training are skipped
-        for cond, obs in (("A", "base"), ("B", "base"), ("C", "hist"), ("D", "residual")):
+        for cond, obs in (("A", "base"), ("B", "base"), ("C", "hist"), ("D", "residual"), ("E0", "rel"), ("E", "scan")):
             try:
                 run = common.find_run(f"{cond}_seed{seed}")
             except FileNotFoundError:
@@ -136,6 +145,8 @@ def aggregate(args):
                 "nonfinite_envs": s["reward"]["num_nonfinite"], "fall_rate": s["fall_rate"],
                 "distance_m": s["distance_m"]["mean"], "speed_mps": s["speed_mps"]["mean"],
                 "steps": s["steps"]["mean"], "alpha_mean": s.get("alpha_mean", {}).get("mean"),
+                "base_norm": s.get("action_norms", {}).get("base", {}).get("mean"),
+                "applied_norm": s.get("action_norms", {}).get("applied", {}).get("mean"),
             })
     os.makedirs(common.RESULTS_DIR, exist_ok=True)
     with open(os.path.join(common.RESULTS_DIR, "main_runs.csv"), "w", newline="") as f:
@@ -147,7 +158,7 @@ def aggregate(args):
     by = {}
     for r in rows:
         by.setdefault((r["condition"], r["env"]), {})[r["seed"]] = r
-    conditions = ["A_ref", "A", "B", "C", "B2000", "D"]
+    conditions = ["A_ref", "A", "B", "C", "B2000", "D", "E0", "E"]
     summary = {}
     for cond in conditions:
         for env in MAIN_ENVS:
@@ -155,24 +166,25 @@ def aggregate(args):
             if not runs:
                 continue
             entry = {}
-            for key in ("reward_mean", "fall_rate", "distance_m", "speed_mps", "alpha_mean"):
+            for key in ("reward_mean", "fall_rate", "distance_m", "speed_mps", "alpha_mean", "base_norm", "applied_norm"):
                 vals = [r[key] for r in runs.values() if r[key] is not None]
                 if vals:
                     entry[key] = _mean_std(vals)
             entry["per_seed_reward"] = {s: r["reward_mean"] for s, r in runs.items()}
             summary[(cond, env)] = entry
-        unseen = [summary.get((cond, e)) for e in UNSEEN_ENVS]
-        if all(unseen):
-            seeds = set.intersection(*[set(u["per_seed_reward"]) for u in unseen])
-            per_seed = {s: sum(u["per_seed_reward"][s] for u in unseen) / 3 for s in seeds}
-            summary[(cond, "Unseen")] = {"reward_mean": _mean_std(list(per_seed.values())), "per_seed_reward": per_seed}
+        for label, envs in (("Unseen", UNSEEN_ENVS), ("Unseen4", UNSEEN4_ENVS)):
+            parts = [summary.get((cond, e)) for e in envs]
+            if all(parts):
+                seeds = set.intersection(*[set(u["per_seed_reward"]) for u in parts])
+                per_seed = {s: sum(u["per_seed_reward"][s] for u in parts) / len(parts) for s in seeds}
+                summary[(cond, label)] = {"reward_mean": _mean_std(list(per_seed.values())), "per_seed_reward": per_seed}
 
     lines = ["# HW1 evaluation summary", "", "Reward: mean +- std over seed-level means (each = 100-env mean).", ""]
-    lines.append("| condition | " + " | ".join([*MAIN_ENVS, "Unseen"]) + " |")
-    lines.append("|---" * (len(MAIN_ENVS) + 2) + "|")
+    lines.append("| condition | " + " | ".join([*MAIN_ENVS, "Unseen", "Unseen4"]) + " |")
+    lines.append("|---" * (len(MAIN_ENVS) + 3) + "|")
     for cond in conditions:
         cells = []
-        for env in [*MAIN_ENVS, "Unseen"]:
+        for env in [*MAIN_ENVS, "Unseen", "Unseen4"]:
             e = summary.get((cond, env))
             cells.append(f"{e['reward_mean'][0]:.1f} +- {e['reward_mean'][1]:.1f}" if e else "-")
         lines.append(f"| {cond} | " + " | ".join(cells) + " |")
@@ -185,11 +197,20 @@ def aggregate(args):
             alpha = f"{e['alpha_mean'][0]:.3f}" if "alpha_mean" in e else "-"
             lines.append(f"| {cond} | {env} | {e['fall_rate'][0]:.2f} | {e['distance_m'][0]:.1f} | "
                          f"{e['speed_mps'][0]:.2f} | {alpha} |")
-    lines += ["", "## Pre-registered comparisons (plan section 9)", "", "| comparison | " + " | ".join([*MAIN_ENVS, "Unseen"]) + " |",
-              "|---" * (len(MAIN_ENVS) + 2) + "|"]
-    for x, y in (("B", "A"), ("C", "B"), ("D", "B"), ("D", "C"), ("D", "B2000"), ("A", "A_ref")):
+    norm_rows = [(env, summary.get(("D", env))) for env in MAIN_ENVS]
+    if all(e and "applied_norm" in e for _, e in norm_rows):
+        lines += ["", "## Size of D's correction (mean L2 norm per step, mean over seeds)", "",
+                  "| env | alpha | base action | applied correction alpha*delta | ratio |", "|---|---|---|---|---|"]
+        for env, e in norm_rows:
+            ratio = e["applied_norm"][0] / max(e["base_norm"][0], 1e-9)
+            lines.append(f"| {env} | {e['alpha_mean'][0]:.3f} | {e['base_norm'][0]:.3f} | {e['applied_norm'][0]:.3f} | "
+                         f"{100 * ratio:.1f}% |")
+    lines += ["", "## Pre-registered comparisons (plan section 9)", "", "| comparison | " + " | ".join([*MAIN_ENVS, "Unseen", "Unseen4"]) + " |",
+              "|---" * (len(MAIN_ENVS) + 3) + "|"]
+    for x, y in (("B", "A"), ("C", "B"), ("D", "B"), ("D", "C"), ("D", "B2000"), ("A", "A_ref"),
+                 ("E0", "B"), ("E", "B"), ("E", "E0"), ("E", "D")):
         cells = []
-        for env in [*MAIN_ENVS, "Unseen"]:
+        for env in [*MAIN_ENVS, "Unseen", "Unseen4"]:
             ex, ey = summary.get((x, env)), summary.get((y, env))
             if ex and ey and len(ex["per_seed_reward"]) > 1 and len(ey["per_seed_reward"]) > 1:
                 cells.append(compare(ex["per_seed_reward"], ey["per_seed_reward"]))

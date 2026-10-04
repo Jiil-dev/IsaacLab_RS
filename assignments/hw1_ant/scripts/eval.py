@@ -114,6 +114,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     finished = torch.zeros(num_envs, dtype=torch.bool, device=device)
     fell = torch.zeros(num_envs, dtype=torch.bool, device=device)
     alpha_sum = torch.zeros(num_envs, dtype=torch.float64, device=device)
+    # size of the base action, of the PPO correction and of the applied correction alpha * delta (D only)
+    norm_sums = {key: torch.zeros(num_envs, dtype=torch.float64, device=device) for key in ("base", "delta", "applied")}
     k = min(args_cli.trace_envs, num_envs)
     traces = {"alpha": [], "pred_error": [], "vel_x": [], "torso_z": [], "active": []}
     nan_events = []
@@ -143,6 +145,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
         steps[active] += 1
         if residual is not None:
             alpha_sum[active] += residual.alpha[active].double()
+            applied = residual.alpha.unsqueeze(-1) * residual.raw_actions
+            norm_sums["base"][active] += residual.base_actions[active].norm(dim=-1).double()
+            norm_sums["delta"][active] += residual.raw_actions[active].norm(dim=-1).double()
+            norm_sums["applied"][active] += applied[active].norm(dim=-1).double()
         ended = dones.bool() & active
         fell |= ended & ~extras["time_outs"].bool()
         finished |= dones.bool()
@@ -169,6 +175,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlOnPolicyRunnerCfg):
     }
     if residual is not None:
         summary["alpha_mean"] = _stats(alpha_sum / steps.double().clamp(min=1))
+        # mean L2 norm per step: base action, PPO correction delta, and the applied correction alpha * delta
+        summary["action_norms"] = {
+            key: _stats(value / steps.double().clamp(min=1)) for key, value in norm_sums.items()
+        }
     result = {
         "label": args_cli.label,
         "task": args_cli.task,
