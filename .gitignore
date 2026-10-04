@@ -1,0 +1,12 @@
+# Python bytecode (regenerated on every run)
+__pycache__/
+*.pyc
+
+# Training and Hydra logs (final weights are copied into assignments/*/checkpoints)
+/logs/
+/outputs/
+
+# Large or regenerated assignment files
+assignments/*/data/
+assignments/*/checkpoints/**/exported/
+assignments/*/checkpoints/**/videos/
