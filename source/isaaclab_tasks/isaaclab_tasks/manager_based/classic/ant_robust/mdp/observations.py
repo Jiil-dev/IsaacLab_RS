@@ -51,6 +51,36 @@ def proprio_state(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityC
     )
 
 
+def base_height_above_origin(env: ManagerBasedEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")) -> torch.Tensor:
+    """Torso height above the environment origin, i.e. above the terrain where the robot spawned (diagnostic).
+
+    The original ``base_pos_z`` is the absolute world height, which is far outside the training range when an episode
+    starts on a raised tile (e.g. the top of a pyramid of stairs).
+    """
+    asset = env.scene[asset_cfg.name]
+    return (asset.data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]).unsqueeze(-1)
+
+
+def ground_relative_heights(
+    env: ManagerBasedEnv,
+    sensor_cfg: SceneEntityCfg,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    max_height: float = 2.0,
+) -> torch.Tensor:
+    """Torso height above the ground hit by every ray of a ray-caster (conditions E0 and E).
+
+    Unlike ``base_pos_z`` (absolute world z), the value does not change when the whole robot stands higher, e.g. on top
+    of a raised tile. Rays that hit nothing count as ``max_height``; values are clipped to ``[-max_height, max_height]``.
+    Shape (num_envs, num_rays).
+    """
+    sensor = env.scene.sensors[sensor_cfg.name]
+    asset = env.scene[asset_cfg.name]
+    hits_z = sensor.data.ray_hits_w[..., 2]
+    heights = asset.data.root_pos_w[:, 2:3] - hits_z
+    heights = torch.where(torch.isfinite(hits_z), heights, torch.full_like(heights, max_height))
+    return heights.clamp(-max_height, max_height)
+
+
 def resolved_feet_cfg(env: ManagerBasedEnv) -> SceneEntityCfg:
     """Entity config for the four feet with body indices resolved (needed by ``body_incoming_wrench``)."""
     feet_cfg = SceneEntityCfg("robot", body_names=FEET_BODY_NAMES)

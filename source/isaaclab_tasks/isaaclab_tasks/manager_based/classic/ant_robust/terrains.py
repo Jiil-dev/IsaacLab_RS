@@ -270,6 +270,48 @@ def t3_terrain() -> TerrainImporterCfg:
     return generator_terrain(t1_terrain_generator(), friction=T3_FRICTION, combine_mode="multiply")
 
 
+def t4_terrain_generator() -> TerrainGeneratorCfg:
+    """Second held-out set, defined after the A-D results but before training E0/E (addendum section 4).
+
+    Shapes never used in training or in the diagnosis: a raised box to step down from (spawn on top), rails to step
+    over and scattered cylinders.
+    """
+    return TerrainGeneratorCfg(
+        seed=3,
+        size=(8.0, 8.0),
+        border_width=20.0,
+        num_rows=25,
+        num_cols=10,
+        horizontal_scale=0.1,
+        vertical_scale=0.005,
+        slope_threshold=0.75,
+        difficulty_range=(0.5, 1.0),
+        curriculum=False,
+        use_cache=False,
+        sub_terrains={
+            "box": terrain_gen.MeshBoxTerrainCfg(proportion=1.0 / 3.0, box_height_range=(0.15, 0.30), platform_width=2.5),
+            "rails": terrain_gen.MeshRailsTerrainCfg(
+                proportion=1.0 / 3.0, rail_thickness_range=(0.05, 0.10), rail_height_range=(0.05, 0.12), platform_width=2.0
+            ),
+            "cylinders": terrain_gen.MeshRepeatedCylindersTerrainCfg(
+                proportion=1.0 / 3.0,
+                object_params_start=terrain_gen.MeshRepeatedCylindersTerrainCfg.ObjectCfg(
+                    num_objects=20, height=0.05, radius=0.25
+                ),
+                object_params_end=terrain_gen.MeshRepeatedCylindersTerrainCfg.ObjectCfg(
+                    num_objects=40, height=0.12, radius=0.35
+                ),
+                platform_width=2.0,
+            ),
+        },
+    )
+
+
+def t4_terrain() -> TerrainImporterCfg:
+    """T4 (second held-out set): new shapes, original friction setting (1.0, average)."""
+    return generator_terrain(t4_terrain_generator(), friction=1.0, combine_mode="average")
+
+
 ##
 # Analysis terrains
 ##

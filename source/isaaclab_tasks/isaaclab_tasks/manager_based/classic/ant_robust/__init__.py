@@ -34,9 +34,15 @@ _register("Isaac-Ant-DR-v0", f"{_ENV_CFGS}:AntDREnvCfg")
 _register("Isaac-Ant-Hist-DR-v0", f"{_ENV_CFGS}:AntHistDREnvCfg")
 _register("Isaac-Ant-Residual-DR-v0", f"{_ENV_CFGS}:AntResidualDREnvCfg", _RESIDUAL_AGENT_CFG)
 
+# exploratory conditions (terrain sensing): E0 and E
+_register("Isaac-Ant-RelHeight-DR-v0", f"{_ENV_CFGS}:AntRelHeightDREnvCfg")
+_register("Isaac-Ant-Scan-DR-v0", f"{_ENV_CFGS}:AntScanDREnvCfg")
+
 # evaluation on the scene of the original task (follows any terrain change made in ant/ant_env_cfg.py)
 _register("Isaac-Ant-Hist-v0", f"{_ENV_CFGS}:AntHistEnvCfg")
 _register("Isaac-Ant-Residual-v0", f"{_ENV_CFGS}:AntResidualEnvCfg")
+_register("Isaac-Ant-RelHeight-v0", f"{_ENV_CFGS}:AntRelHeightEnvCfg")
+_register("Isaac-Ant-Scan-v0", f"{_ENV_CFGS}:AntScanEnvCfg")
 
 # held-out test and analysis terrains
 for _task_id, _cfg_cls in env_cfgs.TEST_TASK_CFGS.items():
