@@ -4,16 +4,16 @@ conda activate lerobot-arena
 cd ~/IsaacLab_RS
 
 ./isaaclab.sh -p scripts/reinforcement_learning/rsl_rl/play_one_episode.py \
-  --task Isaac-Ant-Scan-v0 \
+  --task Isaac-Ant-WideScan-v0 \
   --seed 24 \
   --num_envs 100 \
-  --checkpoint assignments/hw1_ant/checkpoints/E_seed44/model.pt \
+  --checkpoint assignments/hw1_ant/checkpoints/E2_seed42/model.pt \
   --video \
   --video_length 960
 
 
 참고
-- Isaac-Ant-Scan-v0 = 원본 Isaac-Ant-v0 설정을 그대로 상속하고 레이캐스트 높이 센서만 추가한 task입니다.
+- Isaac-Ant-WideScan-v0 = 원본 Isaac-Ant-v0 설정을 그대로 상속하고 레이캐스트 높이 센서만 추가한 task입니다.
   지형, reward, 종료 조건, 에피소드 길이, 로봇은 원본과 같습니다.
   원본 파일 source/isaaclab_tasks/isaaclab_tasks/manager_based/classic/ant/ant_env_cfg.py 의
   지형(MySceneCfg.terrain)과 지형 물성을 바꾸면 이 task도 그 지형에서 평가됩니다.
