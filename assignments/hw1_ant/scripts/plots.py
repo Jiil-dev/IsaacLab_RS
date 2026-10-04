@@ -149,7 +149,8 @@ def fig_main(rows: list[dict]):
         for xi, r in zip(x, ref):
             if r:
                 ax.hlines(r[0], xi - 0.42, xi + 0.42, color=MUTED, linewidth=2, label=LABELS["A_ref"] if xi == 0 else None)
-        ax.set_xticks(x, [ENV_LABELS[e] for e in ENVS])
+        # the narrow right panel only gets the short names
+        ax.set_xticks(x, [ENV_LABELS[e] if key == "reward_mean" else e for e in ENVS])
         ax.set_title(title, loc="left")
         _style(ax)
     axes[1].set_ylim(0, 1)
@@ -246,7 +247,8 @@ def fig_alpha():
         for a in arrays:
             vals = np.where(a["active"], a[key], np.nan)
             series.append(np.nanmean(vals, axis=1))
-        n = min(len(s) for s in series)
+        # drop the final steps: the episode ends at 16 s and the reset zeroes the traced values
+        n = min(len(s) for s in series) - 2
         stack = np.stack([s[:n] for s in series])
         return np.arange(n) * dt, np.nanmean(stack, 0), np.nanmin(stack, 0), np.nanmax(stack, 0)
 
@@ -289,7 +291,7 @@ def fig_alpha():
         for box in parts["boxes"]:
             box.set_facecolor(COLORS["D"])
             box.set_edgecolor(SURFACE)
-        ax.set_xticks(range(1, len(ENVS) + 1), [ENV_LABELS[e] for e in ENVS], fontsize=8)
+        ax.set_xticks(range(1, len(ENVS) + 1), list(ENVS), fontsize=9)
         ax.set_ylim(0, 1.0)
         ax.set_title("Episode-mean alpha of D (300 envs)", loc="left")
         _style(ax)
@@ -394,7 +396,7 @@ def fig_spawn_height():
         ax.set_xlabel("spawn height (m)")
         _style(ax)
     axes[0][0].set_ylabel("distance walked (m)")
-    fig.suptitle("T1: robots that start high stay put (column means, 3 seeds)", x=0.01, ha="left", fontsize=11, color=INK)
+    fig.suptitle("T1: distance walked against spawn height (terrain-column means, 3 seeds)", x=0.01, ha="left", fontsize=11, color=INK)
     fig.tight_layout()
     _save(fig, "t1_spawn_height.png")
 
