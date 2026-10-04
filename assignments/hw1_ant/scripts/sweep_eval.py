@@ -7,8 +7,10 @@
     python assignments/hw1_ant/scripts/run_queue.py logs/hw1_runlogs/eval_jobs.jsonl --gpus 0,1 --per_gpu 2
     python assignments/hw1_ant/scripts/sweep_eval.py aggregate
 
-Evaluated policies: A_ref, A, B, C, D (3 seeds each) and B@2000 (the frozen base of D, to isolate the correction).
-Environments: Flat, T1, T2, T3 (100 envs), Grid at five frictions (200 envs) and the friction switch (100 envs).
+Evaluated policies: A_ref, A, B, C, D, E0, E, E2 (3 seeds each), B@2000 (the frozen base of D, to isolate the
+correction) and E2@1500 (end of E2 stage 1); single-seed diagnosis runs of the second addendum (Eent, E2c, the
+iteration-1000 checkpoints of E and E2, and the oracle) on the main environments only.
+Environments: Flat, T1-T5 (100 envs), Grid at five frictions (200 envs) and the friction switch (100 envs).
 """
 
 import argparse
@@ -19,11 +21,14 @@ import os
 import hw1_common as common
 
 A_REF_CHECKPOINT = "logs/rsl_rl/ant/2026-09-17_13-19-56_ant_baseline/model_999.pt"
-MAIN_ENVS = ("Flat", "T1", "T2", "T3", "T4")
+MAIN_ENVS = ("Flat", "T1", "T2", "T3", "T4", "T5")
 UNSEEN_ENVS = ("T1", "T2", "T3")
 """Unseen average of the plan (section 9)."""
 UNSEEN4_ENVS = ("T1", "T2", "T3", "T4")
 """Unseen average of the addendum (exploratory E0/E, adds the second held-out set T4)."""
+UNSEEN5_ENVS = ("T1", "T2", "T3", "T4", "T5")
+"""Unseen average of the second addendum (E2, adds the third held-out set T5)."""
+AVERAGES = {"Unseen": UNSEEN_ENVS, "Unseen4": UNSEEN4_ENVS, "Unseen5": UNSEEN5_ENVS}
 GRID_FRICTIONS = (0.2, 0.3, 0.5, 0.8, 1.0)
 SWITCH = "300:0.25"
 OBS_TASK_PREFIX = {
@@ -32,9 +37,21 @@ OBS_TASK_PREFIX = {
     "residual": "Isaac-Ant-Residual",
     "rel": "Isaac-Ant-RelHeight",
     "scan": "Isaac-Ant-Scan",
+    "widescan": "Isaac-Ant-WideScan",
 }
-FINAL_ITERATION = {"A": 2999, "B": 2999, "C": 2999, "D": 999, "E0": 2999, "E": 2999}
-"""Last checkpoint of a finished run (A, B, C: 3000 iterations; D: 1000 iterations on top of B@2000)."""
+FINAL_ITERATION = {"A": 2999, "B": 2999, "C": 2999, "D": 999, "E0": 2999, "E": 2999, "E2": 2998, "E2s1": 1499}
+"""Last checkpoint of a finished run (A, B, C, E0, E: 3000 iterations; D: 1000 iterations on top of B@2000;
+E2: stage 1 ends at 1499, stage 2 resumes it for 1500 iterations and ends at 2998)."""
+CONDITIONS = ("A_ref", "A", "B", "C", "B2000", "D", "E0", "E", "E2s1", "E2")
+"""Conditions of the summary table (3 seeds, except the reference A_ref)."""
+DIAGNOSIS = (
+    # condition, run name, checkpoint, observation (second addendum, seed 42 only)
+    ("E_it1000", "E_seed42", "model_1000.pt", "scan"),
+    ("Eent_it1000", "Eent_seed42", "model_999.pt", "scan"),
+    ("E2_it1000", "E2s1_seed42", "model_1000.pt", "widescan"),
+    ("E2c", "E2c_seed42", "model_2998.pt", "widescan"),
+    ("Oracle", "Oracle_seed42", "model_2998.pt", "widescan"),
+)
 
 
 def policies() -> list[dict]:
@@ -43,7 +60,8 @@ def policies() -> list[dict]:
     out = [{"name": "A_ref", "condition": "A_ref", "seed": 42, "obs": "base", "checkpoint": A_REF_CHECKPOINT}]
     for seed in common.SEEDS:
         # runs that do not exist yet or are still training are skipped
-        for cond, obs in (("A", "base"), ("B", "base"), ("C", "hist"), ("D", "residual"), ("E0", "rel"), ("E", "scan")):
+        for cond, obs in (("A", "base"), ("B", "base"), ("C", "hist"), ("D", "residual"), ("E0", "rel"), ("E", "scan"),
+                          ("E2s1", "widescan"), ("E2", "widescan")):
             try:
                 run = common.find_run(f"{cond}_seed{seed}")
             except FileNotFoundError:
@@ -56,10 +74,20 @@ def policies() -> list[dict]:
             if cond == "D":
                 pol["overrides"] = [f"env.actions.joint_effort.base_policy_file=base_policy_seed{seed}.pt",
                                     f"env.actions.joint_effort.dynamics_file=dynamics_seed{seed}.pt"]
+            if cond == "E2s1":
+                pol["main_only"] = True
             out.append(pol)
             if cond == "B" and os.path.exists(os.path.join(run, "model_2000.pt")):
                 out.append({"name": f"B2000_seed{seed}", "condition": "B2000", "seed": seed, "obs": "base",
                             "checkpoint": rel(os.path.join(run, "model_2000.pt"))})
+    for cond, run_name, checkpoint, obs in DIAGNOSIS:
+        try:
+            path = os.path.join(common.find_run(run_name), checkpoint)
+        except FileNotFoundError:
+            continue
+        if os.path.exists(path):
+            out.append({"name": f"{cond}_seed42", "condition": cond, "seed": 42, "obs": obs,
+                        "checkpoint": rel(path), "main_only": True})
     return out
 
 
@@ -80,6 +108,8 @@ def make_jobs(args):
             out = f"assignments/hw1_ant/results/raw/main/{pol['name']}_{env}.json"
             jobs.append({"name": f"eval_{pol['name']}_{env}", "out": out,
                          "args": [*base, "--task", task_id(pol["obs"], env), "--out", out, *extra]})
+        if pol.get("main_only"):
+            continue
         for mu in GRID_FRICTIONS:
             out = f"assignments/hw1_ant/results/raw/grid/{pol['name']}_mu{mu}.json"
             jobs.append({"name": f"grid_{pol['name']}_mu{mu}", "out": out,
@@ -158,7 +188,7 @@ def aggregate(args):
     by = {}
     for r in rows:
         by.setdefault((r["condition"], r["env"]), {})[r["seed"]] = r
-    conditions = ["A_ref", "A", "B", "C", "B2000", "D", "E0", "E"]
+    conditions = [*CONDITIONS, *(d[0] for d in DIAGNOSIS)]
     summary = {}
     for cond in conditions:
         for env in MAIN_ENVS:
@@ -172,21 +202,25 @@ def aggregate(args):
                     entry[key] = _mean_std(vals)
             entry["per_seed_reward"] = {s: r["reward_mean"] for s, r in runs.items()}
             summary[(cond, env)] = entry
-        for label, envs in (("Unseen", UNSEEN_ENVS), ("Unseen4", UNSEEN4_ENVS)):
+        for label, envs in AVERAGES.items():
             parts = [summary.get((cond, e)) for e in envs]
             if all(parts):
                 seeds = set.intersection(*[set(u["per_seed_reward"]) for u in parts])
                 per_seed = {s: sum(u["per_seed_reward"][s] for u in parts) / len(parts) for s in seeds}
                 summary[(cond, label)] = {"reward_mean": _mean_std(list(per_seed.values())), "per_seed_reward": per_seed}
 
-    lines = ["# HW1 evaluation summary", "", "Reward: mean +- std over seed-level means (each = 100-env mean).", ""]
-    lines.append("| condition | " + " | ".join([*MAIN_ENVS, "Unseen", "Unseen4"]) + " |")
-    lines.append("|---" * (len(MAIN_ENVS) + 3) + "|")
+    columns = [*MAIN_ENVS, *AVERAGES]
+    lines = ["# HW1 evaluation summary", "", "Reward: mean +- std over seed-level means (each = 100-env mean).",
+             "Rows below the line are single-seed diagnosis runs of the second addendum (seed 42).", ""]
+    lines.append("| condition | " + " | ".join(columns) + " |")
+    lines.append("|---" * (len(columns) + 1) + "|")
     for cond in conditions:
         cells = []
-        for env in [*MAIN_ENVS, "Unseen", "Unseen4"]:
+        for env in columns:
             e = summary.get((cond, env))
             cells.append(f"{e['reward_mean'][0]:.1f} +- {e['reward_mean'][1]:.1f}" if e else "-")
+        if cond == DIAGNOSIS[0][0]:
+            lines.append("| *diagnosis (seed 42)* |" + " |" * len(columns))
         lines.append(f"| {cond} | " + " | ".join(cells) + " |")
     lines += ["", "| condition | env | fall rate | distance (m) | speed (m/s) | alpha |", "|---|---|---|---|---|---|"]
     for cond in conditions:
@@ -205,12 +239,13 @@ def aggregate(args):
             ratio = e["applied_norm"][0] / max(e["base_norm"][0], 1e-9)
             lines.append(f"| {env} | {e['alpha_mean'][0]:.3f} | {e['base_norm'][0]:.3f} | {e['applied_norm'][0]:.3f} | "
                          f"{100 * ratio:.1f}% |")
-    lines += ["", "## Pre-registered comparisons (plan section 9)", "", "| comparison | " + " | ".join([*MAIN_ENVS, "Unseen", "Unseen4"]) + " |",
-              "|---" * (len(MAIN_ENVS) + 3) + "|"]
+    lines += ["", "## Pre-registered comparisons (plan section 9)", "", "| comparison | " + " | ".join(columns) + " |",
+              "|---" * (len(columns) + 1) + "|"]
     for x, y in (("B", "A"), ("C", "B"), ("D", "B"), ("D", "C"), ("D", "B2000"), ("A", "A_ref"),
-                 ("E0", "B"), ("E", "B"), ("E", "E0"), ("E", "D")):
+                 ("E0", "B"), ("E", "B"), ("E", "E0"), ("E", "D"),
+                 ("E2", "E"), ("E2", "E0"), ("E2", "B"), ("E2", "E2s1")):
         cells = []
-        for env in [*MAIN_ENVS, "Unseen", "Unseen4"]:
+        for env in columns:
             ex, ey = summary.get((x, env)), summary.get((y, env))
             if ex and ey and len(ex["per_seed_reward"]) > 1 and len(ey["per_seed_reward"]) > 1:
                 cells.append(compare(ex["per_seed_reward"], ey["per_seed_reward"]))

@@ -26,7 +26,7 @@ from matplotlib.colors import LinearSegmentedColormap  # noqa: E402
 import hw1_common as common  # noqa: E402
 
 SURFACE, INK, INK2, MUTED, GRID, AXIS = "#fcfcfb", "#0b0b0b", "#52514e", "#898781", "#e1e0d9", "#c3c2b7"
-CONDITIONS = ("A", "B", "C", "D", "E0", "E")
+CONDITIONS = ("A", "B", "C", "D", "E0", "E", "E2")
 COLORS = {
     "A": "#2a78d6",
     "B": "#eb6834",
@@ -35,6 +35,7 @@ COLORS = {
     "B2000": "#e87ba4",
     "E0": "#008300",
     "E": "#4a3aa7",
+    "E2": "#e34948",
 }
 LABELS = {
     "A_ref": "A_ref: given baseline (1000 it)",
@@ -45,6 +46,7 @@ LABELS = {
     "B2000": "B@2000: frozen base of D",
     "E0": "E0: B + height above ground (exploratory)",
     "E": "E: E0 + height scan (exploratory)",
+    "E2": "E2: wide scan + entropy + 2-stage terrain (exploratory)",
 }
 SHORT_LABELS = {
     "A": "A: flat only",
@@ -54,14 +56,16 @@ SHORT_LABELS = {
     "B2000": "B@2000",
     "E0": "E0: + rel. height",
     "E": "E: + height scan",
+    "E2": "E2: wide scan, 2 stages",
 }
-ENVS = ("Flat", "T1", "T2", "T3", "T4")
+ENVS = ("Flat", "T1", "T2", "T3", "T4", "T5")
 ENV_LABELS = {
     "Flat": "Flat\n(seen)",
     "T1": "T1\nshapes",
     "T2": "T2\nμ 0.2",
     "T3": "T3\nshapes, μ 0.4",
     "T4": "T4\nnew shapes",
+    "T5": "T5\ncones, boxes",
 }
 SEQUENTIAL = LinearSegmentedColormap.from_list(
     "blue", ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
@@ -126,8 +130,8 @@ def fig_main(rows: list[dict]):
     conds = [c for c in CONDITIONS if any(r["condition"] == c for r in rows)]
     if not conds:
         return
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4.4), gridspec_kw={"width_ratios": [1.5, 1]})
-    highlight = "E" if "E" in conds else "D"
+    fig, axes = plt.subplots(1, 2, figsize=(16, 4.6), gridspec_kw={"width_ratios": [1.6, 1]})
+    highlight = next(c for c in ("E2", "E", "D") if c in conds)
     width = 0.8 / len(conds)
     x = np.arange(len(ENVS))
     for ax, key, title in ((axes[0], "reward_mean", "Episode reward (official metric)"),
@@ -182,11 +186,12 @@ def fig_d_vs_base(rows: list[dict]):
 
 
 def fig_heatmaps(grid_rows: list[dict]):
-    """Friction x roughness: reward per condition, and the difference D - B."""
-    conds = [c for c in ("A", "B", "D", "E") if any(r["condition"] == c for r in grid_rows)]
+    """Friction x roughness: reward per condition, and the difference of the newest condition to its predecessor."""
+    conds = [c for c in ("A", "B", "E", "E2") if any(r["condition"] == c for r in grid_rows)]
     if not conds:
         return
-    best = "E" if "E" in conds else "D"
+    best = conds[-1]
+    ref = "E" if best == "E2" else "B"
     frictions = sorted({float(r["friction"]) for r in grid_rows})
     heights = sorted({float(r["max_height"]) for r in grid_rows})
 
@@ -202,14 +207,15 @@ def fig_heatmaps(grid_rows: list[dict]):
 
     mats = {c: matrix(c) for c in conds}
     vmax = max(np.nanmax(m) for m in mats.values())
-    panels = conds + ([f"{best}-B"] if best in mats and "B" in mats else [])
+    diff = f"{best}-{ref}"
+    panels = conds + ([diff] if best != ref and ref in mats else [])
     fig, axes = plt.subplots(1, len(panels), figsize=(3.2 * len(panels), 3.6), squeeze=False)
     for ax, name in zip(axes[0], panels):
-        if name.endswith("-B"):
-            m = mats[best] - mats["B"]
+        if name == diff:
+            m = mats[best] - mats[ref]
             lim = np.nanmax(np.abs(m))
             img = ax.imshow(m, cmap=DIVERGING, vmin=-lim, vmax=lim, origin="lower", aspect="auto")
-            ax.set_title(f"{best} - B (blue: {best} better)", loc="left")
+            ax.set_title(f"{best} - {ref} (blue: {best} better)", loc="left")
         else:
             m = mats[name]
             img = ax.imshow(m, cmap=SEQUENTIAL, vmin=0, vmax=vmax, origin="lower", aspect="auto")
@@ -305,42 +311,115 @@ def _smooth(values: np.ndarray, window: int = 25) -> np.ndarray:
     return (cumsum[1:] - cumsum[np.maximum(np.arange(1, len(values) + 1) - window, 0)]) / counts
 
 
+RESUME_SKIP = 40
+"""Iterations not drawn after a resume: the episode buffer starts empty, so the first ~30 iterations (one episode is
+960 steps = 30 iterations) only average early-ending episodes and show a fake drop."""
+
+
+def _scalar_curve(run_names: list[str], tag: str) -> np.ndarray | None:
+    """(iteration, value) of a TensorBoard scalar; several run names are concatenated (E2: stage 1, then stage 2)."""
+    from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+
+    parts = []
+    for name in run_names:
+        try:
+            run = common.find_run(name)
+        except FileNotFoundError:
+            return None
+        ea = EventAccumulator(run, size_guidance={"scalars": 0})
+        ea.Reload()
+        if tag not in ea.Tags()["scalars"]:
+            return None
+        part = np.array([[e.step, e.value] for e in ea.Scalars(tag)])
+        if parts:
+            part = part[part[:, 0] > parts[-1][-1, 0]]  # stage 2 repeats the last stage-1 iteration index
+            if tag == "Train/mean_reward":
+                part = part[RESUME_SKIP:]
+        parts.append(part)
+    return np.concatenate(parts)
+
+
+def _run_names(cond: str, seed: int) -> list[str]:
+    return [f"E2s1_seed{seed}", f"E2_seed{seed}"] if cond == "E2" else [f"{cond}_seed{seed}"]
+
+
 def fig_training_curves():
-    """Training reward per iteration. D is drawn from iteration 2000 because it starts from B@2000."""
+    """Training reward and exploration noise per iteration. D is drawn from iteration 2000 (it starts from B@2000);
+    E2 switches to the higher terrain at iteration 1500."""
     try:
-        from tensorboard.backend.event_processing.event_accumulator import EventAccumulator
+        import tensorboard  # noqa: F401
     except ImportError:
         return
-    fig, ax = plt.subplots(figsize=(9, 3.8))
-    for cond in CONDITIONS:
-        curves = []
-        for seed in common.SEEDS:
-            try:
-                run = common.find_run(f"{cond}_seed{seed}")
-            except FileNotFoundError:
+    fig, axes = plt.subplots(1, 2, figsize=(15, 3.9), gridspec_kw={"width_ratios": [1.4, 1]})
+    for ax, tag in ((axes[0], "Train/mean_reward"), (axes[1], "Policy/mean_noise_std")):
+        for cond in CONDITIONS:
+            if tag == "Policy/mean_noise_std" and cond not in ("B", "E", "E2"):
                 continue
-            ea = EventAccumulator(run, size_guidance={"scalars": 0})
-            ea.Reload()
-            if "Train/mean_reward" not in ea.Tags()["scalars"]:
+            curves = [c for c in (_scalar_curve(_run_names(cond, s), tag) for s in common.SEEDS) if c is not None]
+            if not curves:
                 continue
-            events = ea.Scalars("Train/mean_reward")
-            curves.append(np.array([[e.step, e.value] for e in events]))
-        if not curves:
-            continue
-        n = min(len(c) for c in curves)
-        # D's first iterations average over very few finished episodes; skip them instead of drawing a fake drop
-        start = 10 if cond == "D" else 0
-        steps = curves[0][start:n, 0] + (2000 if cond == "D" else 0)
-        values = np.stack([_smooth(c[start:n, 1]) for c in curves])
-        ax.plot(steps, values.mean(0), color=COLORS[cond], linewidth=2, label=f"{LABELS[cond]} ({len(curves)} seeds)")
-        ax.fill_between(steps, values.min(0), values.max(0), color=COLORS[cond], alpha=0.1, linewidth=0)
-    ax.axvline(2000, color=MUTED, linewidth=1)
-    ax.set_xlabel("PPO iteration (D: B's 2000 + its own 1000)")
-    ax.set_ylabel("mean training reward")
-    ax.set_title("Training curves on each condition's own training environment", loc="left")
-    ax.legend(fontsize=8, loc="lower right")
-    _style(ax)
+            n = min(len(c) for c in curves)
+            # D resumes from B@2000: skip its first iterations instead of drawing a fake drop (see RESUME_SKIP)
+            start = RESUME_SKIP if cond == "D" and tag == "Train/mean_reward" else 0
+            steps = curves[0][start:n, 0] + (2000 if cond == "D" else 0)
+            smooth = _smooth if tag == "Train/mean_reward" else (lambda v: v)
+            values = np.stack([smooth(c[start:n, 1]) for c in curves])
+            ax.plot(steps, values.mean(0), color=COLORS[cond], linewidth=2, label=f"{LABELS[cond]} ({len(curves)} seeds)")
+            ax.fill_between(steps, values.min(0), values.max(0), color=COLORS[cond], alpha=0.1, linewidth=0)
+        marks = ((1500, "E2: higher terrain", -10), (2000, "D starts", -22))
+        for x, text, dy in marks if tag == "Train/mean_reward" else marks[:1]:
+            ax.axvline(x, color=MUTED, linewidth=1)
+            ax.annotate(text, (x, 1), xycoords=("data", "axes fraction"), xytext=(3, dy), textcoords="offset points",
+                        fontsize=8, color=INK2)
+        ax.set_xlabel("PPO iteration")
+        _style(ax)
+    axes[0].set_ylabel("mean training reward")
+    axes[0].set_ylim(top=axes[0].get_ylim()[1] + 25)  # headroom for the iteration labels
+    axes[0].set_title("Training reward on each condition's own training environment", loc="left")
+    axes[0].legend(fontsize=8, loc="lower right")
+    axes[1].set_yscale("log")
+    axes[1].set_ylabel("action noise std (log)")
+    axes[1].set_title("Exploration noise: entropy bonus keeps it up (E2)", loc="left")
+    axes[1].legend(fontsize=8, loc="lower left")
     _save(fig, "training_curves.png")
+
+
+def fig_e2_decomposition(rows: list[dict]):
+    """Second addendum, seed 42: what each change of E2 adds, on the T1-T4 average and on T5 (single seed)."""
+    steps = [
+        ("E_it1000", "E @1000"),
+        ("Eent_it1000", "+ entropy\n@1000"),
+        ("E2_it1000", "+ wide scan\n@1000"),
+        ("E2s1", "E2 stage 1\n@1500"),
+        ("E2c", "same terrain\n@3000"),
+        ("E2", "E2: higher\nterrain @3000"),
+        ("Oracle", "ceiling: test\nshapes @3000"),
+    ]
+
+    def value(cond: str, envs: tuple[str, ...]) -> float:
+        vals = [float(r["reward_mean"]) for r in rows
+                if r["condition"] == cond and int(r["seed"]) == 42 and r["env"] in envs]
+        return float(np.mean(vals)) if len(vals) == len(envs) else np.nan
+
+    have = [(c, label) for c, label in steps if np.isfinite(value(c, ("T1",)))]
+    if len(have) < 3:
+        return
+    fig, axes = plt.subplots(1, 2, figsize=(14, 3.9), sharey=True)
+    for ax, envs, title in ((axes[0], ("T1", "T2", "T3", "T4"), "T1-T4 average"), (axes[1], ("T5",), "T5 (new held-out)")):
+        x = np.arange(len(have))
+        for xi, (cond, label) in zip(x, have):
+            v = value(cond, envs)
+            color = MUTED if cond == "Oracle" else (COLORS["E"] if cond.startswith("E_") or cond.startswith("Eent") else COLORS["E2"])
+            ax.bar(xi, v, 0.6, color=color, edgecolor=SURFACE, linewidth=2)
+            ax.annotate(f"{v:.0f}", (xi, v), xytext=(0, 3), textcoords="offset points", ha="center", fontsize=8, color=INK)
+        ax.set_xticks(x, [label for _, label in have], fontsize=8)
+        ax.set_title(f"{title}, seed 42", loc="left")
+        _style(ax)
+    axes[0].set_ylabel("reward")
+    fig.suptitle("What each change of E2 adds (single seed; E family violet, E2 family red, ceiling gray)", x=0.01,
+                 ha="left", fontsize=11, color=INK)
+    fig.tight_layout()
+    _save(fig, "e2_decomposition.png")
 
 
 def fig_calibration(seed: int = 42):
@@ -378,7 +457,7 @@ def fig_spawn_height():
     with open(path) as f:
         spawn = json.load(f)
     z, col = np.array(spawn["origin_z"]), np.array(spawn["column"])
-    conds = [c for c in ("A", "B", "D", "E0", "E")
+    conds = [c for c in ("A", "B", "D", "E0", "E", "E2")
              if glob.glob(os.path.join(common.RESULTS_DIR, "raw", "main", f"{c}_seed*_T1.json"))]
     fig, axes = plt.subplots(1, len(conds), figsize=(3.1 * len(conds), 3.3), sharey=True, squeeze=False)
     for ax, cond in zip(axes[0], conds):
@@ -406,6 +485,7 @@ def main():
     if rows:
         fig_main(rows)
         fig_d_vs_base(rows)
+        fig_e2_decomposition(rows)
     grid_rows = _read_csv("grid_runs.csv")
     if grid_rows:
         fig_heatmaps(grid_rows)
