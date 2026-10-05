@@ -58,14 +58,15 @@ SHORT_LABELS = {
     "E": "E: + height scan",
     "E2": "E2: wide scan, 2 stages",
 }
-ENVS = ("Flat", "T1", "T2", "T3", "T4", "T5")
+ENVS = ("Flat", "T1", "T2", "T3", "T4", "T5", "T6")
 ENV_LABELS = {
     "Flat": "Flat\n(seen)",
     "T1": "T1\nshapes",
     "T2": "T2\nμ 0.2",
-    "T3": "T3\nshapes, μ 0.4",
+    "T3": "T3\nT1 + μ 0.4",
     "T4": "T4\nnew shapes",
     "T5": "T5\ncones, boxes",
+    "T6": "T6\nbelow zero",
 }
 SEQUENTIAL = LinearSegmentedColormap.from_list(
     "blue", ["#cde2fb", "#9ec5f4", "#6da7ec", "#3987e5", "#256abf", "#184f95", "#0d366b"]
@@ -169,7 +170,7 @@ def fig_d_vs_base(rows: list[dict]):
     if not any(r["condition"] == "D" for r in rows):
         return
     conds = ["B2000", "B", "D"]
-    fig, ax = plt.subplots(figsize=(8, 3.8))
+    fig, ax = plt.subplots(figsize=(10.5, 3.8))
     width = 0.8 / len(conds)
     x = np.arange(len(ENVS))
     for i, cond in enumerate(conds):
@@ -422,6 +423,75 @@ def fig_e2_decomposition(rows: list[dict]):
     _save(fig, "e2_decomposition.png")
 
 
+def _policy_value(rows: list[dict], policy: str, envs: tuple[str, ...], key: str = "reward_mean") -> float:
+    vals = [float(r[key]) for r in rows if r["policy"] == policy and r["env"] in envs]
+    return float(np.mean(vals)) if len(vals) == len(envs) else np.nan
+
+
+def fig_round4(rows: list[dict]):
+    """Third addendum: E2 and its two 1500-iteration continuations, per seed (lines join the same seed)."""
+    conds = [("E2", "E2\n@2998"), ("E3c", "E3c: same\nterrain @4497"), ("E3", "E3: harder\nterrain @4497")]
+    if not all(any(r["condition"] == c for r in rows) for c, _ in conds):
+        return
+    panels = ((("T1", "T2", "T3", "T4", "T5"), "T1-T5 average (main metric)"),
+              (("T6",), "T6: ground below zero (guard)"), (("Flat",), "Flat (original scene)"))
+    markers = {42: "o", 43: "s", 44: "^"}
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.0))
+    x = np.arange(len(conds))
+    for ax, (envs, title) in zip(axes, panels):
+        for seed in common.SEEDS:
+            vals = [_policy_value(rows, f"{c}_seed{seed}", envs) for c, _ in conds]
+            ink = INK if seed == 42 else MUTED
+            ax.plot(x, vals, color=ink, linewidth=1.2 if seed == 42 else 1, zorder=2)
+            ax.scatter(x, vals, marker=markers[seed], s=40, color=ink, edgecolor=SURFACE, linewidth=1.5, zorder=3,
+                       label=f"seed {seed}" + (" (submitted lineage)" if seed == 42 else ""))
+        for xi, (cond, _) in enumerate(conds):
+            vals = [_policy_value(rows, f"{cond}_seed{s}", envs) for s in common.SEEDS]
+            mean = float(np.nanmean(vals))
+            ax.hlines(mean, xi - 0.22, xi + 0.22, color=COLORS["E2"], linewidth=3, zorder=4)
+            ax.annotate(f"{mean:.1f}", (xi + 0.24, mean), va="center", fontsize=9, color=INK)
+        ax.set_xticks(x, [label for _, label in conds], fontsize=9)
+        ax.set_xlim(-0.4, len(conds) - 0.4)
+        ax.set_title(title, loc="left")
+        _style(ax)
+    axes[0].set_ylabel("reward (100-env mean)")
+    handles, labels = axes[0].get_legend_handles_labels()
+    handles.append(plt.Line2D([], [], color=COLORS["E2"], linewidth=3))
+    labels.append("mean of 3 seeds")
+    fig.legend(handles, labels, loc="lower center", ncol=4, bbox_to_anchor=(0.5, -0.07), fontsize=9)
+    fig.suptitle("Round 4: one more terrain stage (E3) against more training on the same terrain (E3c)", x=0.01,
+                 ha="left", fontsize=11, color=INK)
+    fig.tight_layout()
+    _save(fig, "round4_e3.png")
+
+
+def fig_specialist(rows: list[dict]):
+    """Third addendum, seed 42: obstacle specialist against the generalist with the same start and training amount."""
+    pols = [("E2_seed42", "start: E2\n@2998"), ("E3c_seed42", "generalist\n+1500 it"),
+            ("Sobs_seed42", "obstacle\nspecialist\n+1500 it")]
+    if not np.isfinite(_policy_value(rows, "Sobs_seed42", ("Obst",))):
+        return
+    panels = ((("Obst",), "Obst: its own domain"), (("T4", "T5"), "T4-T5 average"), (("Flat",), "Flat"),
+              (("T1", "T2", "T3", "T4", "T5"), "T1-T5 average"))
+    shades = (GRID, AXIS, INK2)
+    fig, axes = plt.subplots(1, len(panels), figsize=(15, 3.6), sharey=False)
+    for ax, (envs, title) in zip(axes, panels):
+        for xi, ((pol, label), shade) in enumerate(zip(pols, shades)):
+            v = _policy_value(rows, pol, envs)
+            ax.bar(xi, v, 0.62, color=shade, edgecolor=SURFACE, linewidth=2)
+            if np.isfinite(v):
+                ax.annotate(f"{v:.1f}", (xi, v), xytext=(0, 3), textcoords="offset points", ha="center", fontsize=9,
+                            color=INK)
+        ax.set_xticks(range(len(pols)), [label for _, label in pols], fontsize=8)
+        ax.set_title(title, loc="left")
+        _style(ax)
+    axes[0].set_ylabel("reward (100-env mean)")
+    fig.suptitle("Is a specialist better in its own domain? (seed 42, same start, same training amount)", x=0.01,
+                 ha="left", fontsize=11, color=INK)
+    fig.tight_layout()
+    _save(fig, "specialist_obstacles.png")
+
+
 def fig_calibration(seed: int = 42):
     """Window-mean prediction error on nominal ground vs the DR training environment, with the alpha thresholds."""
     path = os.path.join(common.RESULTS_DIR, "dynamics", f"window_errors_seed{seed}.pt")
@@ -486,6 +556,8 @@ def main():
         fig_main(rows)
         fig_d_vs_base(rows)
         fig_e2_decomposition(rows)
+        fig_round4(rows)
+        fig_specialist(rows)
     grid_rows = _read_csv("grid_runs.csv")
     if grid_rows:
         fig_heatmaps(grid_rows)

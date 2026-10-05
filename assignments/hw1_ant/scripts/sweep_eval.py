@@ -7,10 +7,12 @@
     python assignments/hw1_ant/scripts/run_queue.py logs/hw1_runlogs/eval_jobs.jsonl --gpus 0,1 --per_gpu 2
     python assignments/hw1_ant/scripts/sweep_eval.py aggregate
 
-Evaluated policies: A_ref, A, B, C, D, E0, E, E2 (3 seeds each), B@2000 (the frozen base of D, to isolate the
-correction) and E2@1500 (end of E2 stage 1); single-seed diagnosis runs of the second addendum (Eent, E2c, the
-iteration-1000 checkpoints of E and E2, and the oracle) on the main environments only.
-Environments: Flat, T1-T5 (100 envs), Grid at five frictions (200 envs) and the friction switch (100 envs).
+Evaluated policies: A_ref, A, B, C, D, E0, E, E2, E3 (3 seeds each), B@2000 (the frozen base of D, to isolate the
+correction), E2@1500 (end of E2 stage 1) and E3c (control of E3); single-seed diagnosis runs of the second and third
+addenda (Eent, E2c, the iteration-1000 checkpoints of E and E2, the oracle and the obstacle specialist) on the main
+environments only.
+Environments: Flat, T1-T6 (100 envs), Grid at five frictions (200 envs) and the friction switch (100 envs); the
+in-domain obstacle test Obst only for the policies of the specialist comparison.
 """
 
 import argparse
@@ -21,14 +23,18 @@ import os
 import hw1_common as common
 
 A_REF_CHECKPOINT = "logs/rsl_rl/ant/2026-09-17_13-19-56_ant_baseline/model_999.pt"
-MAIN_ENVS = ("Flat", "T1", "T2", "T3", "T4", "T5")
+MAIN_ENVS = ("Flat", "T1", "T2", "T3", "T4", "T5", "T6")
 UNSEEN_ENVS = ("T1", "T2", "T3")
 """Unseen average of the plan (section 9)."""
 UNSEEN4_ENVS = ("T1", "T2", "T3", "T4")
 """Unseen average of the addendum (exploratory E0/E, adds the second held-out set T4)."""
 UNSEEN5_ENVS = ("T1", "T2", "T3", "T4", "T5")
 """Unseen average of the second addendum (E2, adds the third held-out set T5)."""
-AVERAGES = {"Unseen": UNSEEN_ENVS, "Unseen4": UNSEEN4_ENVS, "Unseen5": UNSEEN5_ENVS}
+UNSEEN6_ENVS = ("T1", "T2", "T3", "T4", "T5", "T6")
+"""Unseen average of the third addendum (E3, adds the fourth held-out set T6, ground below zero)."""
+AVERAGES = {"Unseen": UNSEEN_ENVS, "Unseen4": UNSEEN4_ENVS, "Unseen5": UNSEEN5_ENVS, "Unseen6": UNSEEN6_ENVS}
+OBST_POLICIES = ("E2_seed42", "E3_seed42", "E3c_seed42", "Sobs_seed42")
+"""Policies of the specialist comparison (third addendum), also evaluated on the in-domain obstacle test Obst."""
 GRID_FRICTIONS = (0.2, 0.3, 0.5, 0.8, 1.0)
 SWITCH = "300:0.25"
 OBS_TASK_PREFIX = {
@@ -39,10 +45,12 @@ OBS_TASK_PREFIX = {
     "scan": "Isaac-Ant-Scan",
     "widescan": "Isaac-Ant-WideScan",
 }
-FINAL_ITERATION = {"A": 2999, "B": 2999, "C": 2999, "D": 999, "E0": 2999, "E": 2999, "E2": 2998, "E2s1": 1499}
+FINAL_ITERATION = {"A": 2999, "B": 2999, "C": 2999, "D": 999, "E0": 2999, "E": 2999, "E2": 2998, "E2s1": 1499,
+                   "E3": 4497, "E3c": 4497}
 """Last checkpoint of a finished run (A, B, C, E0, E: 3000 iterations; D: 1000 iterations on top of B@2000;
-E2: stage 1 ends at 1499, stage 2 resumes it for 1500 iterations and ends at 2998)."""
-CONDITIONS = ("A_ref", "A", "B", "C", "B2000", "D", "E0", "E", "E2s1", "E2")
+E2: stage 1 ends at 1499, stage 2 resumes it for 1500 iterations and ends at 2998; E3 and E3c resume E2 for another
+1500 iterations and end at 4497)."""
+CONDITIONS = ("A_ref", "A", "B", "C", "B2000", "D", "E0", "E", "E2s1", "E2", "E3c", "E3")
 """Conditions of the summary table (3 seeds, except the reference A_ref)."""
 DIAGNOSIS = (
     # condition, run name, checkpoint, observation (second addendum, seed 42 only)
@@ -51,6 +59,8 @@ DIAGNOSIS = (
     ("E2_it1000", "E2s1_seed42", "model_1000.pt", "widescan"),
     ("E2c", "E2c_seed42", "model_2998.pt", "widescan"),
     ("Oracle", "Oracle_seed42", "model_2998.pt", "widescan"),
+    # third addendum
+    ("Sobs", "Sobs_seed42", "model_4497.pt", "widescan"),
 )
 
 
@@ -61,7 +71,7 @@ def policies() -> list[dict]:
     for seed in common.SEEDS:
         # runs that do not exist yet or are still training are skipped
         for cond, obs in (("A", "base"), ("B", "base"), ("C", "hist"), ("D", "residual"), ("E0", "rel"), ("E", "scan"),
-                          ("E2s1", "widescan"), ("E2", "widescan")):
+                          ("E2s1", "widescan"), ("E2", "widescan"), ("E3c", "widescan"), ("E3", "widescan")):
             try:
                 run = common.find_run(f"{cond}_seed{seed}")
             except FileNotFoundError:
@@ -74,7 +84,7 @@ def policies() -> list[dict]:
             if cond == "D":
                 pol["overrides"] = [f"env.actions.joint_effort.base_policy_file=base_policy_seed{seed}.pt",
                                     f"env.actions.joint_effort.dynamics_file=dynamics_seed{seed}.pt"]
-            if cond == "E2s1":
+            if cond in ("E2s1", "E3c"):
                 pol["main_only"] = True
             out.append(pol)
             if cond == "B" and os.path.exists(os.path.join(run, "model_2000.pt")):
@@ -104,7 +114,7 @@ def make_jobs(args):
         base = ["assignments/hw1_ant/scripts/eval.py", "--headless", "--checkpoint", pol["checkpoint"],
                 "--label", pol["name"]]
         extra = pol.get("overrides", [])
-        for env in MAIN_ENVS:
+        for env in (*MAIN_ENVS, "Obst") if pol["name"] in OBST_POLICIES else MAIN_ENVS:
             out = f"assignments/hw1_ant/results/raw/main/{pol['name']}_{env}.json"
             jobs.append({"name": f"eval_{pol['name']}_{env}", "out": out,
                          "args": [*base, "--task", task_id(pol["obs"], env), "--out", out, *extra]})
@@ -164,7 +174,7 @@ def aggregate(args):
     rows = []
     pols = policies()
     for pol in pols:
-        for env in MAIN_ENVS:
+        for env in (*MAIN_ENVS, "Obst"):
             res = _load(f"assignments/hw1_ant/results/raw/main/{pol['name']}_{env}.json")
             if res is None:
                 continue
@@ -191,7 +201,7 @@ def aggregate(args):
     conditions = [*CONDITIONS, *(d[0] for d in DIAGNOSIS)]
     summary = {}
     for cond in conditions:
-        for env in MAIN_ENVS:
+        for env in (*MAIN_ENVS, "Obst"):
             runs = by.get((cond, env))
             if not runs:
                 continue
@@ -243,7 +253,8 @@ def aggregate(args):
               "|---" * (len(columns) + 1) + "|"]
     for x, y in (("B", "A"), ("C", "B"), ("D", "B"), ("D", "C"), ("D", "B2000"), ("A", "A_ref"),
                  ("E0", "B"), ("E", "B"), ("E", "E0"), ("E", "D"),
-                 ("E2", "E"), ("E2", "E0"), ("E2", "B"), ("E2", "E2s1")):
+                 ("E2", "E"), ("E2", "E0"), ("E2", "B"), ("E2", "E2s1"),
+                 ("E3", "E2"), ("E3c", "E2"), ("E3", "E3c")):
         cells = []
         for env in columns:
             ex, ey = summary.get((x, env)), summary.get((y, env))
@@ -252,6 +263,15 @@ def aggregate(args):
             else:
                 cells.append("-")
         lines.append(f"| {x} vs {y} | " + " | ".join(cells) + " |")
+
+    obst_rows = [r for r in rows if r["policy"] in OBST_POLICIES and r["env"] in ("Obst", "T4", "T5", "Flat")]
+    if any(r["env"] == "Obst" for r in obst_rows):
+        lines += ["", "## Obstacle specialist (third addendum, seed 42 lineage, 1500 iterations after E2)", "",
+                  "| policy | Obst | T4 | T5 | Flat |", "|---|---|---|---|---|"]
+        for name in OBST_POLICIES:
+            cells = {r["env"]: f"{r['reward_mean']:.1f} ({r['fall_rate']:.2f})" for r in obst_rows if r["policy"] == name}
+            lines.append(f"| {name} | " + " | ".join(cells.get(e, "-") for e in ("Obst", "T4", "T5", "Flat")) + " |")
+        lines.append("Cells: 100-env mean reward (fall rate).")
 
     # heatmap table
     grid_rows = []
