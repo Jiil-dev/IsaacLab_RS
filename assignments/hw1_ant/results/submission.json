@@ -21,7 +21,14 @@
   "E2_seed42": 102.72756027221679,
   "E2_seed43": 80.6918148803711,
   "E2_seed44": 95.16520233154297,
-  "Oracle_seed42": 82.74097946166992
+  "E3_seed42": 69.60618301391601,
+  "E3_seed43": 60.67131889343262,
+  "E3_seed44": 69.44977264404297,
+  "E3c_seed42": 107.95859725952148,
+  "E3c_seed43": 91.17319854736328,
+  "E3c_seed44": 102.22591629028321,
+  "Oracle_seed42": 82.74097946166992,
+  "Sobs_seed42": 74.32973876953125
  },
  "rules": {
   "plan": {
@@ -124,13 +131,41 @@
    "seed": 42,
    "task": "Isaac-Ant-WideScan-v0",
    "checkpoint": "assignments/hw1_ant/checkpoints/E2_seed42/model.pt"
+  },
+  "addendum3": {
+   "rule": "the better of E3/E3c on T1-T5 if it is > E2 on T1-T5 and not < E2 on T6 (plan section 9 rule) and its seed (highest stage-3 training reward) scores >= the current submission on T1-T5",
+   "unseen5_mean_by_condition": {
+    "E3": 79.857440096576,
+    "E3c": 89.07417558699716
+   },
+   "candidate": "E3c",
+   "candidate_vs_E2_unseen5": "> (trend)",
+   "candidate_vs_E2_T6": "> (trend)",
+   "candidate_seed": 42,
+   "candidate_seed_unseen5": 94.25116235613113,
+   "current_unseen5": 91.00331994354072,
+   "checkpoint_ok": true,
+   "replace": false,
+   "condition": "E2",
+   "seed": 42,
+   "task": "Isaac-Ant-WideScan-v0",
+   "checkpoint": "assignments/hw1_ant/checkpoints/E2_seed42/model.pt"
   }
  },
  "submission": {
-  "rule": "E2 if E2 > E on the T1-T4 average and not E2 < E on T5 (plan section 9 rule), else the addendum choice",
-  "E2_vs_E_unseen4": ">",
-  "E2_vs_E_T5": ">",
-  "replace": true,
+  "rule": "the better of E3/E3c on T1-T5 if it is > E2 on T1-T5 and not < E2 on T6 (plan section 9 rule) and its seed (highest stage-3 training reward) scores >= the current submission on T1-T5",
+  "unseen5_mean_by_condition": {
+   "E3": 79.857440096576,
+   "E3c": 89.07417558699716
+  },
+  "candidate": "E3c",
+  "candidate_vs_E2_unseen5": "> (trend)",
+  "candidate_vs_E2_T6": "> (trend)",
+  "candidate_seed": 42,
+  "candidate_seed_unseen5": 94.25116235613113,
+  "current_unseen5": 91.00331994354072,
+  "checkpoint_ok": true,
+  "replace": false,
   "condition": "E2",
   "seed": 42,
   "task": "Isaac-Ant-WideScan-v0",
