@@ -11,7 +11,9 @@ Task ids (all share the rewards, terminations and robot of Isaac-Ant-v0):
 * ``Isaac-Ant-RelHeight-*`` / ``Isaac-Ant-Scan-*``: E0 and E (terrain sensing), first exploratory round.
 * ``Isaac-Ant-WideScan-DR-v0`` / ``-DRHard-v0`` / ``-v0``: E2 stage 1 / stage 2 / original scene, second exploratory
   round; ``Isaac-Ant-WideScan-Oracle-v0`` is its ceiling reference (trained on the test shapes, never submitted).
-* ``Isaac-Ant[-<obs>]-{T1,T2,T3,T4,T5,Grid,Switch}-v0``: held-out test and analysis terrains.
+* ``Isaac-Ant-WideScan-DRHarder-v0``: E3 stage 3 (third exploratory round); ``Isaac-Ant-WideScan-ObstHard-v0`` trains
+  its obstacle specialist (diagnosis, never submitted).
+* ``Isaac-Ant[-<obs>]-{T1,...,T6,Obst,Grid,Switch}-v0``: held-out test and analysis terrains.
 """
 
 import gymnasium as gym
@@ -46,6 +48,10 @@ _register("Isaac-Ant-Scan-DR-v0", f"{_ENV_CFGS}:AntScanDREnvCfg")
 _register("Isaac-Ant-WideScan-DR-v0", f"{_ENV_CFGS}:AntWideScanDREnvCfg", _E2_AGENT_CFG)
 _register("Isaac-Ant-WideScan-DRHard-v0", f"{_ENV_CFGS}:AntWideScanDRHardEnvCfg", _E2_AGENT_CFG)
 _register("Isaac-Ant-WideScan-Oracle-v0", f"{_ENV_CFGS}:AntWideScanOracleEnvCfg", _E2_AGENT_CFG)
+
+# third exploratory round: E3 (stage 3) and the obstacle specialist
+_register("Isaac-Ant-WideScan-DRHarder-v0", f"{_ENV_CFGS}:AntWideScanDRHarderEnvCfg", _E2_AGENT_CFG)
+_register("Isaac-Ant-WideScan-ObstHard-v0", f"{_ENV_CFGS}:AntWideScanObstHardEnvCfg", _E2_AGENT_CFG)
 
 # evaluation on the scene of the original task (follows any terrain change made in ant/ant_env_cfg.py)
 _register("Isaac-Ant-Hist-v0", f"{_ENV_CFGS}:AntHistEnvCfg")

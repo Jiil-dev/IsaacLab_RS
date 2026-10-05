@@ -5,16 +5,20 @@
 
 * ``dr_terrain``: the domain-randomized training terrain (B, C, D, E0, E and stage 1 of E2 are trained on it).
 * ``dr_hard_terrain``: the same terrain types with about twice the height range (stage 2 of E2).
-* ``t1_terrain`` .. ``t5_terrain``: held-out test terrains (never used for training).
+* ``dr_harder_terrain``: higher blocks, steeper slopes and harder tiles overall (stage 3, condition E3).
+* ``obstacles_hard_terrain``: only the blocks of ``dr_hard_terrain`` (the obstacle specialist of the third addendum).
+* ``t1_terrain`` .. ``t6_terrain``: held-out test terrains (never used for training).
 * ``oracle_terrain``: the shapes of T1 and T4 on other random tiles, only for the ceiling reference of E2.
+* ``obstacles_test_terrain``: the blocks of ``dr_hard_terrain`` on other tiles (in-domain test of the specialist).
 * ``grid_terrain``: four columns of increasing roughness for the friction x roughness heatmap.
 * ``plane_terrain``: a flat plane with a chosen friction (T2 and the friction-switch analysis).
 
 Two constraints of the original Ant task shape these terrains:
 
 * The episode terminates when the torso is below 0.31 m in *world* z (``root_height_below_minimum``), and a trained
-  Ant walks with its torso only 0.38-0.50 m high (measured in phase 0). Every terrain therefore keeps the ground at
-  or above zero: dips or pits would end episodes even if the robot walks well.
+  Ant walks with its torso only 0.38-0.50 m high (measured in phase 0). Every training terrain therefore keeps the
+  ground at or above zero: dips or pits would end episodes even if the robot walks well. T6 is the one exception: it
+  measures exactly this risk, with every robot spawning on ground at zero.
 * The Ant runs about 130 m in a 16 s episode, so robots spawn at the start of a strip that is long enough.
 
 Friction is set through the ground material. Its combine mode is ``multiply`` wherever the effective friction
@@ -106,6 +110,89 @@ class RaisedRandomGridTerrainCfg(terrain_gen.MeshRandomGridTerrainCfg):
     """Configuration for :func:`raised_random_grid_terrain`."""
 
     function = raised_random_grid_terrain
+
+
+##
+# Custom sub-terrains below zero (T6 only)
+##
+
+
+@height_field_to_mesh
+def trench_terrain(difficulty: float, cfg: TrenchTerrainCfg) -> np.ndarray:
+    """Flat ground at zero cut by trenches across the walking direction (+x); the trench floor is below zero.
+
+    Flat stretches of ``spacing_range`` alternate with trenches of ``trench_width_range`` that span the whole tile in y.
+    No trench crosses the central platform where the robot spawns. The depth grows linearly with the difficulty.
+    """
+    depth = cfg.depth_range[0] + difficulty * (cfg.depth_range[1] - cfg.depth_range[0])
+    width_pixels = int(cfg.size[0] / cfg.horizontal_scale)
+    length_pixels = int(cfg.size[1] / cfg.horizontal_scale)
+    platform = (0.5 * (cfg.size[0] - cfg.platform_width), 0.5 * (cfg.size[0] + cfg.platform_width))
+    hf_raw = np.zeros((width_pixels, length_pixels))
+    x = 0.0
+    while True:
+        x += np.random.uniform(*cfg.spacing_range)
+        width = np.random.uniform(*cfg.trench_width_range)
+        if x + width > cfg.size[0]:
+            break
+        if x + width <= platform[0] or x >= platform[1]:
+            hf_raw[int(x / cfg.horizontal_scale) : int((x + width) / cfg.horizontal_scale), :] = -depth
+        x += width
+    return np.rint(hf_raw / cfg.vertical_scale).astype(np.int16)
+
+
+@configclass
+class TrenchTerrainCfg(terrain_gen.HfTerrainBaseCfg):
+    """Configuration for :func:`trench_terrain`."""
+
+    function = trench_terrain
+
+    depth_range: tuple[float, float] = (0.05, 0.20)
+    """Trench depth (m) at difficulty 0 and 1."""
+
+    trench_width_range: tuple[float, float] = (0.25, 0.60)
+    """Range of the trench width along x (m)."""
+
+    spacing_range: tuple[float, float] = (0.8, 1.6)
+    """Range of the flat stretch before each trench (m)."""
+
+    platform_width: float = 2.0
+    border_width: float = 0.25
+
+
+@height_field_to_mesh
+def pit_field_terrain(difficulty: float, cfg: PitFieldTerrainCfg) -> np.ndarray:
+    """Built-in discrete obstacles turned upside down: rectangular pits of one depth around a flat platform."""
+    return -hf_terrains.discrete_obstacles_terrain.__wrapped__(difficulty, cfg)
+
+
+@configclass
+class PitFieldTerrainCfg(terrain_gen.HfDiscreteObstaclesTerrainCfg):
+    """Configuration for :func:`pit_field_terrain` (``obstacle_height_range`` is the pit depth)."""
+
+    function = pit_field_terrain
+
+    obstacle_height_mode: str = "fixed"
+
+
+@height_field_to_mesh
+def sunken_random_uniform_terrain(difficulty: float, cfg: SunkenRandomUniformTerrainCfg) -> np.ndarray:
+    """The bumps of :func:`scaled_random_uniform_terrain` shifted down by their maximum height (heights in ``[-h, 0]``).
+
+    Seen from the robot (whose observations are relative to the ground) this is the same bump field; only the
+    distance to the termination height in world z shrinks by ``h``.
+    """
+    low, high = cfg.max_height_range
+    max_height = low + difficulty * (high - low)
+    heights = scaled_random_uniform_terrain.__wrapped__(difficulty, cfg)
+    return np.clip(heights - int(round(max_height / cfg.vertical_scale)), None, 0)
+
+
+@configclass
+class SunkenRandomUniformTerrainCfg(ScaledRandomUniformTerrainCfg):
+    """Configuration for :func:`sunken_random_uniform_terrain`."""
+
+    function = sunken_random_uniform_terrain
 
 
 ##
@@ -216,6 +303,46 @@ rails, cylinders, cones, tilted boxes) is added."""
 
 def dr_hard_terrain() -> TerrainImporterCfg:
     return training_terrain(DR_HARD_TERRAIN_GENERATOR)
+
+
+DR_HARDER_TERRAIN_GENERATOR = DR_TERRAIN_GENERATOR.replace(
+    seed=9,
+    difficulty_range=(0.25, 1.0),
+    sub_terrains={
+        "flat": terrain_gen.MeshPlaneTerrainCfg(proportion=0.10),
+        "rough": ScaledRandomUniformTerrainCfg(proportion=0.30, max_height_range=(0.01, 0.12)),
+        "wave": RaisedWaveTerrainCfg(proportion=0.15, amplitude_range=(0.01, 0.06), num_waves=4, border_width=0.25),
+        "obstacles": terrain_gen.HfDiscreteObstaclesTerrainCfg(
+            proportion=0.25,
+            obstacle_height_mode="fixed",
+            obstacle_width_range=(0.3, 0.8),
+            obstacle_height_range=(0.03, 0.30),
+            num_obstacles=40,
+            platform_width=2.0,
+            border_width=0.25,
+        ),
+        "slope": terrain_gen.HfPyramidSlopedTerrainCfg(
+            proportion=0.20, slope_range=(0.0, 0.45), platform_width=2.0, border_width=0.25
+        ),
+    },
+)
+"""Stage 3 (E3, third addendum): blocks up to 0.30 m and 40 per tile, slopes up to 0.45, fewer flat tiles and no tile
+below difficulty 0.25. Bumps and waves keep the stage-2 maximum so that T1 (bumps 0.13-0.16 m) and T5 (waves up to
+0.20 m) stay outside the training range; no test shape is added."""
+
+
+def dr_harder_terrain() -> TerrainImporterCfg:
+    return training_terrain(DR_HARDER_TERRAIN_GENERATOR)
+
+
+OBSTACLES_HARD_TERRAIN_GENERATOR = DR_HARD_TERRAIN_GENERATOR.replace(
+    seed=10, sub_terrains={"obstacles": DR_HARD_TERRAIN_GENERATOR.sub_terrains["obstacles"].replace(proportion=1.0)}
+)
+"""Obstacle specialist of the third addendum: only the blocks of the stage-2 terrain (0.02-0.20 m)."""
+
+
+def obstacles_hard_terrain() -> TerrainImporterCfg:
+    return training_terrain(OBSTACLES_HARD_TERRAIN_GENERATOR)
 
 
 ##
@@ -349,7 +476,8 @@ def t4_terrain() -> TerrainImporterCfg:
 
 
 T5_SPAWN_ROWS = 10
-"""T5 spreads the 100 robots over 10 rows x 10 columns, one robot per tile (see ``mdp.spread_env_origins``)."""
+"""T5 and later test terrains spread the 100 robots over 10 rows x 10 columns, one robot per tile (see
+``mdp.spread_env_origins``)."""
 
 
 def t5_terrain_generator() -> TerrainGeneratorCfg:
@@ -398,6 +526,45 @@ def t5_terrain() -> TerrainImporterCfg:
     return generator_terrain(t5_terrain_generator(), friction=1.0, combine_mode="average")
 
 
+def t6_terrain_generator() -> TerrainGeneratorCfg:
+    """Fourth held-out set, defined before training E3 (third addendum): ground below zero.
+
+    Every other terrain keeps the ground at or above zero, while the episode ends at a torso height of 0.31 m in world
+    z. T6 measures that risk: trenches and pits are new shapes, and the sunken bumps are the bumps of T1 shifted
+    down, so that only the distance to the termination height changes. Robots spawn on ground at zero.
+    """
+    return TerrainGeneratorCfg(
+        seed=6,
+        size=(8.0, 8.0),
+        border_width=20.0,
+        num_rows=25,
+        num_cols=10,
+        horizontal_scale=0.1,
+        vertical_scale=0.005,
+        slope_threshold=0.75,
+        difficulty_range=(0.5, 1.0),
+        curriculum=False,
+        use_cache=False,
+        sub_terrains={
+            "trenches": TrenchTerrainCfg(proportion=1.0 / 3.0, depth_range=(0.05, 0.20)),
+            "pits": PitFieldTerrainCfg(
+                proportion=1.0 / 3.0,
+                obstacle_width_range=(0.4, 1.0),
+                obstacle_height_range=(0.05, 0.20),
+                num_obstacles=30,
+                platform_width=2.0,
+                border_width=0.25,
+            ),
+            "sunken_bumps": SunkenRandomUniformTerrainCfg(proportion=1.0 / 3.0, max_height_range=(0.10, 0.16)),
+        },
+    )
+
+
+def t6_terrain() -> TerrainImporterCfg:
+    """T6 (fourth held-out set): ground below zero, original friction setting (1.0, average)."""
+    return generator_terrain(t6_terrain_generator(), friction=1.0, combine_mode="average")
+
+
 ##
 # Ceiling reference of E2 (never a submission candidate)
 ##
@@ -420,6 +587,17 @@ def oracle_terrain() -> TerrainImporterCfg:
 ##
 # Analysis terrains
 ##
+
+def obstacles_test_terrain() -> TerrainImporterCfg:
+    """In-domain test of the obstacle specialist: the blocks of the stage-2 terrain on other tiles (seed 11).
+
+    Like T5, the 100 robots spawn on 100 different tiles; the difficulty is 0.5-1 (blocks 0.11-0.20 m).
+    """
+    generator = t5_terrain_generator().replace(
+        seed=11, sub_terrains={"obstacles": DR_HARD_TERRAIN_GENERATOR.sub_terrains["obstacles"].replace(proportion=1.0)}
+    )
+    return generator_terrain(generator, friction=1.0, combine_mode="average")
+
 
 GRID_MAX_HEIGHTS = (0.0, 0.05, 0.10, 0.15)
 """Maximum bump height of each column of the heatmap terrain (one column per value)."""

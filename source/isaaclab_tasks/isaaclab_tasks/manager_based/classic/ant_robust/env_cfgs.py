@@ -196,7 +196,7 @@ class OracleEventCfg(DREventCfg):
 
 @configclass
 class T5EventCfg(EventCfg):
-    """Original events plus one spawn tile per robot (T5 only)."""
+    """Original events plus one spawn tile per robot (T5, T6 and the in-domain obstacle test)."""
 
     spread_origins = EventTerm(
         func=mdp.spread_env_origins, mode="startup", params={"spawn_rows": terrains.T5_SPAWN_ROWS}
@@ -220,6 +220,18 @@ def use_dr_hard_training(cfg: AntEnvCfg):
     """Stage 2 of E2: like ``use_dr_training`` with the higher terrain."""
     use_dr_training(cfg)
     cfg.scene.terrain = terrains.dr_hard_terrain()
+
+
+def use_dr_harder_training(cfg: AntEnvCfg):
+    """Stage 3 (E3): like ``use_dr_training`` with higher blocks, steeper slopes and harder tiles."""
+    use_dr_training(cfg)
+    cfg.scene.terrain = terrains.dr_harder_terrain()
+
+
+def use_obstacles_hard_training(cfg: AntEnvCfg):
+    """Obstacle specialist (third addendum): like ``use_dr_training`` with only the stage-2 blocks."""
+    use_dr_training(cfg)
+    cfg.scene.terrain = terrains.obstacles_hard_terrain()
 
 
 def use_oracle_training(cfg: AntEnvCfg):
@@ -247,6 +259,16 @@ def use_t4_terrain(cfg: AntEnvCfg):
 
 def use_t5_terrain(cfg: AntEnvCfg):
     cfg.scene.terrain = terrains.t5_terrain()
+    cfg.events = T5EventCfg()
+
+
+def use_t6_terrain(cfg: AntEnvCfg):
+    cfg.scene.terrain = terrains.t6_terrain()
+    cfg.events = T5EventCfg()
+
+
+def use_obstacles_test_terrain(cfg: AntEnvCfg):
+    cfg.scene.terrain = terrains.obstacles_test_terrain()
     cfg.events = T5EventCfg()
 
 
@@ -322,6 +344,24 @@ class AntWideScanDRHardEnvCfg(AntWideScanEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         use_dr_hard_training(self)
+
+
+@configclass
+class AntWideScanDRHarderEnvCfg(AntWideScanEnvCfg):
+    """E3 stage 3: higher blocks, steeper slopes and harder tiles than stage 2."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        use_dr_harder_training(self)
+
+
+@configclass
+class AntWideScanObstHardEnvCfg(AntWideScanEnvCfg):
+    """Obstacle specialist (diagnosis, never submitted): only the blocks of the stage-2 terrain."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        use_obstacles_hard_training(self)
 
 
 @configclass
@@ -408,6 +448,8 @@ for _obs_name, _base_cls in {
         "T3": use_t3_terrain,
         "T4": use_t4_terrain,
         "T5": use_t5_terrain,
+        "T6": use_t6_terrain,
+        "Obst": use_obstacles_test_terrain,
         "Grid": use_grid_terrain,
         "Switch": use_switch_terrain,
     }.items():
